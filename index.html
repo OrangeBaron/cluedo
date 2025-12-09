@@ -139,7 +139,7 @@
             font-weight: 600; 
             color: var(--text-main);
             border-right: 2px solid var(--border);
-            max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+            max-width: 50px; overflow: hidden; text-overflow: ellipsis;
         }
 
         /* Grid Colors */
@@ -294,6 +294,12 @@
         <div id="log-area">
             <div class="log-entry">> Sistema avviato. In attesa...</div>
         </div>
+
+        <div style="text-align: right; margin-top: 8px;">
+            <button class="secondary" onclick="exportGameLogs()" style="width: auto; display: inline-flex; font-size: 0.75rem; padding: 6px 12px;">
+                📥 Esporta Log Partita
+            </button>
+        </div>
     </div>
 
 </div>
@@ -310,11 +316,12 @@ const CARDS_IN_DECK = suspects.length + weapons.length + rooms.length - 3;
 let players = [];
 let myName = "";
 let myExpectedCount = 0;
-let limits = {}; 
-let grid = {};  
+let limits = {};
+let grid = {};
 let constraints = [];
 let currentTurnIndex = 0;
-let history = []; 
+let history = [];
+let fullGameLogs = [];
 
 // --- SETUP FUNCTIONS ---
 function handleEnter(e) { if(e.key === 'Enter') addPlayer(); }
@@ -510,7 +517,7 @@ function submitTurn() {
         turnIndex: currentTurnIndex,
         limits: JSON.parse(JSON.stringify(limits))
     });
-    if(history.length > 50) history.shift();
+    // if(history.length > 50) history.shift();
 
     const involved = [s, w, r];
     log(`🔎 <b>${asker}</b> chiede: ${s}, ${w}, ${r}`);
@@ -563,7 +570,7 @@ function undoLastTurn() {
     grid = last.grid;
     constraints = last.constraints;
     currentTurnIndex = last.turnIndex;
-    log(`⏪ Turno annullato.`);
+    log(`⏪ <b>UNDO</b>: L'ultimo turno è stato annullato.`);
     updateTurnUI();
     renderGrid();
 }
@@ -707,7 +714,7 @@ function runSolver() {
 function renderGrid() {
     const table = document.getElementById('main-grid');
     let html = `<thead><tr><th>Carte</th>`;
-    players.forEach(p => html += `<th>${p.substring(0,4)}</th>`);
+    players.forEach(p => html += `<th>${p.substring(0,6)}</th>`);
     html += `</tr></thead><tbody>`;
 
     const buildRows = (title, list) => {
@@ -747,12 +754,43 @@ function renderGrid() {
 
 // Utils
 function switchView(f, t) { document.getElementById(f).classList.add('hidden'); document.getElementById(t).classList.remove('hidden'); }
-function log(m) { const el = document.getElementById('log-area'); el.innerHTML = `<div class="log-entry">${m}</div>` + el.innerHTML; }
+function log(m) { 
+    const textOnly = m.replace(/<[^>]*>/g, '');
+    const time = new Date().toLocaleTimeString();
+    fullGameLogs.push(`[${time}] ${textOnly}`);
+
+    const el = document.getElementById('log-area'); 
+    el.innerHTML = `<div class="log-entry">${m}</div>` + el.innerHTML; 
+}
 function populateSelect(id, list, addNone=false, label=null) {
     const s = document.getElementById(id); s.innerHTML = '';
     if(label) { const o = document.createElement('option'); o.value=""; o.text=label; s.appendChild(o); }
     if(addNone) { const o = document.createElement('option'); o.value="none"; o.text="❌ NESSUNO (Tutti passano)"; s.appendChild(o); }
     list.forEach(i => { const o = document.createElement('option'); o.value=i; o.text=i; s.appendChild(o); });
+}
+function exportGameLogs() {
+    if (fullGameLogs.length === 0) return alert("Nessun dato da esportare.");
+
+    let content = "CLUEDO SOLVER PRO - REGISTRO PARTITA\n";
+    content += "====================================\n\n";
+    
+    content += fullGameLogs.join("\n");
+    
+    content += "\n\n====================================\n";
+    content += "STATO MATEMATICO FINALE (GRIGLIA)\n";
+    content += "2 = C'è (Sì) | 1 = Non c'è (No) | 0 = Boh\n";
+    content += "====================================\n";
+    content += JSON.stringify(grid, null, 2);
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cluedo_logs_${new Date().toISOString().slice(0,10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 </script>
 </body>
