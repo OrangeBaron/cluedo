@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cluedo Solver Pro</title>
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/8790/8790310.png" type="image/png">
+    <style>
+        :root {
+            --bg-dark: #111827;
+            --bg-card: #1f2937;
+            --bg-input: #374151;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --accent: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success: #10b981;
+            --danger: #ef4444;
+            --border: #374151;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 800px;
+            padding: 16px;
+            padding-bottom: 40px;
+        }
+
+        /* TYPOGRAPHY */
+        h1, h2, h3 { color: white; text-align: center; margin: 0 0 1rem 0; letter-spacing: -0.5px; }
+        h1 { font-weight: 800; background: linear-gradient(to right, #818cf8, #c084fc); background-clip: text; -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent; margin-bottom: 2rem; }
+        p { color: var(--text-muted); line-height: 1.5; font-size: 0.95rem; }
+
+        /* UTILS */
+        .hidden { display: none !important; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+
+        /* INPUTS & BUTTONS */
+        input, select {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            font-size: 1rem;
+            transition: 0.2s;
+            appearance: none;
+        }
+        select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+        }
+        input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
+
+        button {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: var(--radius);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: transform 0.1s, background 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        button:active { transform: scale(0.98); }
+        button:hover { background: var(--primary-hover); }
+        button.secondary { background: var(--bg-input); color: var(--text-muted); font-size: 0.85rem; padding: 8px 12px; width: auto; }
+        button.action-btn { background: linear-gradient(135deg, var(--primary) 0%, #4338ca 100%); }
+
+        /* SETUP VIEW */
+        .card { background: var(--bg-card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); margin-bottom: 20px; border: 1px solid var(--border); }
+        
+        .input-row { display: flex; gap: 10px; margin-bottom: 15px; }
+        .player-tag { display: inline-block; background: #374151; padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; margin: 4px; border: 1px solid #4b5563; }
+
+        /* HAND SELECTION */
+        .category-group { margin-bottom: 25px; }
+        .category-title { color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; font-weight: bold; letter-spacing: 1px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+        
+        .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+        .check-card {
+            position: relative;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 0.9rem;
+            display: flex; align-items: center;
+        }
+        .check-card input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .check-card span { margin-left: 5px; }
+        .check-card:has(input:checked) { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: var(--success); font-weight: bold; }
+        .check-card:has(input:checked)::before { content: '✓'; margin-right: 6px; }
+
+        /* GAME GRID */
+        .grid-container { 
+            overflow-x: auto; 
+            margin: 0 -16px 20px -16px; 
+            padding: 0 16px; 
+            -webkit-overflow-scrolling: touch; 
+        }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.85rem; }
+        th, td { padding: 10px 8px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; white-space: nowrap; }
+        
+        th { background: #111827; color: var(--text-muted); position: sticky; top: 0; z-index: 10; font-weight: 600; border-bottom: 2px solid #4b5563; }
+        th:first-child { left: 0; z-index: 20; border-right: 2px solid var(--border); }
+        
+        td:first-child { 
+            position: sticky; left: 0; z-index: 5; 
+            background: var(--bg-card); 
+            text-align: left; 
+            font-weight: 600; 
+            color: var(--text-main);
+            border-right: 2px solid var(--border);
+            max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        /* Grid Colors */
+        .c-yes { background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; }
+        .c-no { color: #ef4444; font-weight: normal; opacity: 0.5; }
+        .c-unk { color: #4b5563; font-weight: normal; opacity: 0.3; }
+        .c-sol { background: rgba(245, 158, 11, 0.2) !important; color: #fbbf24 !important; border-left: 4px solid #fbbf24 !important; }
+
+        /* DASHBOARD */
+        .stats-bar { display: flex; gap: 10px; overflow-x: auto; margin-bottom: 20px; padding-bottom: 5px; scrollbar-width: none; }
+        .stat-pill { background: var(--bg-input); padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; white-space: nowrap; border: 1px solid transparent; flex-shrink: 0; }
+        .stat-pill.full { border-color: var(--success); color: var(--success); background: rgba(16, 185, 129, 0.1); }
+
+        /* TURN INTERFACE */
+        .turn-card { background: linear-gradient(to bottom right, #2d3748, #1a202c); border: 1px solid #4a5568; position: relative; overflow: hidden; }
+        .turn-card::before { content:''; position: absolute; top:0; left:0; width:100%; height:4px; background: var(--primary); }
+        
+        .turn-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .active-badge { background: var(--primary); color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+
+        .selector-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
+        
+        .special-box { background: rgba(245, 158, 11, 0.1); border: 1px dashed var(--accent); padding: 12px; border-radius: 8px; margin-top: 10px; }
+        .bluff-msg { color: var(--success); font-size: 0.85rem; text-align: center; margin-top: 5px; font-weight: 500; }
+
+        /* LOGS */
+        #log-area { 
+            background: #000; 
+            color: #10b981; 
+            font-family: 'Courier New', monospace; 
+            padding: 15px; 
+            border-radius: 8px; 
+            height: 180px; 
+            overflow-y: auto; 
+            font-size: 0.8rem; 
+            border: 1px solid #333;
+            margin-top: 20px;
+        }
+        .log-entry { margin-bottom: 6px; border-bottom: 1px solid #222; padding-bottom: 4px; }
+        .log-highlight { color: #fbbf24; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+
+    <div id="view-setup" class="fade-in">
+        <h1>🕵️ Cluedo Pro</h1>
+        
+        <div class="card">
+            <h3>Giocatori</h3>
+            <p style="text-align:center; margin-bottom:15px">Inserisci i giocatori in ordine di distribuzione delle carte (senso orario dal mazziere).</p>
+            
+            <div class="input-row">
+                <input type="text" id="new-player" placeholder="Nome..." onkeypress="handleEnter(event)">
+                <button onclick="addPlayer()" style="width: auto;">➕</button>
+            </div>
+            
+            <div id="player-list" style="text-align:center; margin-bottom:15px; min-height:30px;">
+                </div>
+
+            <div class="input-row" style="flex-direction: column;">
+                <select id="who-am-i"><option value="" disabled selected>Tu chi sei?</option></select>
+                <select id="starting-player"><option value="" disabled selected>Chi inizia?</option></select>
+            </div>
+        </div>
+
+        <button class="action-btn" onclick="goToHandSelection()">AVANTI ➔</button>
+
+        <div style="margin-top: 30px; padding: 15px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-align: justify; opacity: 0.7;">
+            <p style="margin: 0;">
+                ⚠️ <b>DISCLAIMER RESPONSABILITÀ</b><br><br>
+                Questo software è stato sviluppato con il preciso scopo di annientare i tuoi avversari.<br><br>
+                L'utilizzo di algoritmi di deduzione per ottenere una superiorità tattica schiacciante è spesso riconosciuto come un vantaggio sleale e un atteggiamento contrario allo spirito dei giochi da tavolo.<br><br>
+                Lo sviluppatore <b>declina ogni responsabilità</b> qualora la frustrazione generata dalla tua ineluttabile vittoria dovesse trasformare la simulazione in una scena del crimine <i>reale</i>.
+            </p>
+        </div>
+    </div>
+
+    <div id="view-hand" class="hidden fade-in">
+        <h2>📂 Le Tue Prove</h2>
+        <div id="hand-counter-badge" style="background: var(--bg-input); color: var(--danger); padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; display: inline-block; margin-bottom: 20px; border: 1px solid var(--danger);">
+            Selezionate: 0 / ?
+        </div>
+        <p style="text-align:center; margin-bottom:20px">Seleziona le carte che hai in mano.</p>
+        
+        <div class="category-group">
+            <div class="category-title">Sospettati</div>
+            <div class="check-grid" id="hand-suspects"></div>
+        </div>
+        
+        <div class="category-group">
+            <div class="category-title">Armi</div>
+            <div class="check-grid" id="hand-weapons"></div>
+        </div>
+        
+        <div class="category-group">
+            <div class="category-title">Stanze</div>
+            <div class="check-grid" id="hand-rooms"></div>
+        </div>
+
+        <button class="action-btn" style="margin-top: 30px; background: var(--success);" onclick="finalizeSetup()">✅ INIZIA INDAGINE</button>
+    </div>
+
+    <div id="view-game" class="hidden fade-in">
+        
+        <div class="stats-bar" id="card-counts"></div>
+
+        <div class="grid-container">
+            <table id="main-grid"></table>
+        </div>
+
+        <div class="card turn-card">
+            <div class="turn-header">
+                <span class="active-badge" id="turn-display-name">Giocatore 1</span>
+                <div>
+                    <button class="secondary" onclick="undoLastTurn()">↩ Undo</button>
+                    <button class="secondary" onclick="toggleManualTurn()" style="margin-left:5px">✏️ Edit</button>
+                </div>
+            </div>
+
+            <div id="manual-asker-div" class="hidden" style="margin-bottom:10px;">
+                <label style="font-size:0.8rem; color:var(--text-muted)">Chi sta chiedendo?</label>
+                <select id="turn-asker" onchange="checkSpecialInput()"></select>
+            </div>
+
+            <div class="selector-group">
+                <select id="turn-suspect" onchange="checkBluffUI()"><option value="">👤 Sospettato</option></select>
+                <select id="turn-weapon" onchange="checkBluffUI()"><option value="">🔫 Arma</option></select>
+                <select id="turn-room" onchange="checkBluffUI()"><option value="">🏰 Stanza</option></select>
+            </div>
+            
+            <div id="bluff-indicator" class="bluff-msg"></div>
+
+            <div style="margin-top: 15px; padding-top:15px; border-top:1px solid #4a5568;">
+                <label style="font-size:0.85rem; color:var(--text-muted); display:block; margin-bottom:5px;">Chi ha mostrato una carta?</label>
+                <select id="turn-responder" onchange="checkSpecialInput()">
+                    <option value="none">❌ NESSUNO (Tutti passano)</option>
+                </select>
+            </div>
+            
+            <div id="private-reveal-box" class="hidden special-box">
+                <label style="color:var(--accent); font-weight:bold; font-size:0.9rem; display:block; margin-bottom:5px;">👁️ Che carta hai visto?</label>
+                <select id="turn-card-shown" style="border-color:var(--accent); color: var(--accent);">
+                    <option value="">-- Seleziona carta --</option>
+                </select>
+            </div>
+
+            <button class="action-btn" onclick="submitTurn()" style="margin-top:20px;">REGISTRA TURNO</button>
+        </div>
+
+        <div id="log-area">
+            <div class="log-entry">> Sistema avviato. In attesa...</div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// --- CONFIGURATION ---
+const suspects = ["Scarlett", "Mustard", "White", "Green", "Peacock", "Plum"];
+const weapons = ["Candeliere", "Pugnale", "Tubo", "Rivoltella", "Corda", "Chiave"];
+const rooms = ["Ingresso", "Veranda", "Pranzo", "Cucina", "Ballo", "Serra", "Biliardo", "Biblioteca", "Studio"];
+const allCards = [...suspects, ...weapons, ...rooms];
+const CARDS_IN_DECK = suspects.length + weapons.length + rooms.length - 3; 
+
+// --- STATE VARIABLES ---
+let players = [];
+let myName = "";
+let myExpectedCount = 0;
+let limits = {}; 
+let grid = {};  
+let constraints = [];
+let currentTurnIndex = 0;
+let history = []; 
+
+// --- SETUP FUNCTIONS ---
+function handleEnter(e) { if(e.key === 'Enter') addPlayer(); }
+
+function addPlayer() {
+    if (players.length >= 6) return;
+    const input = document.getElementById('new-player');
+    const name = input.value.trim();
+    
+    if (name && !players.includes(name)) {
+        players.push(name);
+        document.getElementById('player-list').innerHTML += `<span class="player-tag">${players.length}. ${name}</span>`;
+        
+        const meSelect = document.getElementById('who-am-i');
+        const startSelect = document.getElementById('starting-player');
+        
+        const opt1 = document.createElement('option'); opt1.value = name; opt1.text = name; meSelect.appendChild(opt1);
+        const opt2 = document.createElement('option'); opt2.value = name; opt2.text = name; startSelect.appendChild(opt2);
+        
+        input.value = ''; input.focus();
+
+        if (players.length >= 6) {
+            input.disabled = true; input.placeholder = "Max players reached";
+        }
+    } else if (players.includes(name)) {
+        alert("Giocatore già presente!");
+    }
+}
+
+function goToHandSelection() {
+    if (players.length < 2) return alert("Minimo 2 giocatori!");
+    myName = document.getElementById('who-am-i').value;
+    if(!myName) return alert("Chi sei tu?");
+
+    // --- CALCOLO MATEMATICO DELLE CARTE ---
+    const myIndex = players.indexOf(myName);
+    const baseCount = Math.floor(CARDS_IN_DECK / players.length);
+    const remainder = CARDS_IN_DECK % players.length;
+    
+    myExpectedCount = baseCount + (myIndex < remainder ? 1 : 0);
+
+    // Resetta UI Contatore
+    updateHandCountUI(0);
+
+    const createChecks = (list, containerId) => {
+        const div = document.getElementById(containerId);
+        div.innerHTML = "";
+        list.forEach(c => {
+            div.innerHTML += `<label class="check-card"><input type="checkbox" value="${c}" class="init-card-check" onchange="updateHandCountUI()"><span>${c}</span></label>`;
+        });
+    };
+
+    createChecks(suspects, 'hand-suspects');
+    createChecks(weapons, 'hand-weapons');
+    createChecks(rooms, 'hand-rooms');
+
+    switchView('view-setup', 'view-hand');
+}
+
+function updateHandCountUI() {
+    // Conta quante checkbox sono selezionate
+    const current = document.querySelectorAll('.init-card-check:checked').length;
+    const badge = document.getElementById('hand-counter-badge');
+    
+    badge.innerText = `Selezionate: ${current} / ${myExpectedCount}`;
+    
+    if (current === myExpectedCount) {
+        // Corretto: Verde
+        badge.style.color = 'var(--success)';
+        badge.style.borderColor = 'var(--success)';
+        badge.style.background = 'rgba(16, 185, 129, 0.1)';
+    } else {
+        // Errato: Rosso
+        badge.style.color = 'var(--danger)';
+        badge.style.borderColor = 'var(--danger)';
+        badge.style.background = 'rgba(239, 68, 68, 0.1)';
+    }
+}
+
+function finalizeSetup() {
+    const checks = document.querySelectorAll('.init-card-check:checked');
+    
+    // --- BLOCCO DI SICUREZZA ---
+    if (checks.length !== myExpectedCount) {
+        alert(`Attenzione!\n\nIn base al numero di giocatori (${players.length}), dovresti avere esattamente ${myExpectedCount} carte.\n\nNe hai selezionate ${checks.length}. Correggi prima di continuare.`);
+        return;
+    }
+
+    allCards.forEach(c => { grid[c] = { SOL: 0 }; players.forEach(p => grid[c][p] = 0); });
+
+    checks.forEach(chk => setFact(chk.value, myName, 2));
+
+    // Ricalcola limiti per tutti gli altri (logica invariata)
+    const baseCount = Math.floor(CARDS_IN_DECK / players.length);
+    const remainder = CARDS_IN_DECK % players.length;
+    players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
+
+    populateSelect('turn-asker', players);
+    populateSelect('turn-responder', players, true);
+    populateSelect('turn-suspect', suspects, false, "👤 Sospettato");
+    populateSelect('turn-weapon', weapons, false, "🔫 Arma");
+    populateSelect('turn-room', rooms, false, "🏰 Stanza");
+
+    const starterName = document.getElementById('starting-player').value;
+    currentTurnIndex = players.indexOf(starterName) >= 0 ? players.indexOf(starterName) : 0;
+
+    updateTurnUI();
+    switchView('view-hand', 'view-game');
+    runSolver();
+}
+
+// --- TURN UI ---
+function updateTurnUI() {
+    const currentPlayer = players[currentTurnIndex];
+    document.getElementById('turn-display-name').innerText = "Turno di: " + currentPlayer;
+    document.getElementById('turn-asker').value = currentPlayer;
+    checkSpecialInput();
+    checkBluffUI();
+}
+
+function toggleManualTurn() {
+    const manualDiv = document.getElementById('manual-asker-div');
+    const badge = document.getElementById('turn-display-name');
+    if (manualDiv.classList.contains('hidden')) {
+        manualDiv.classList.remove('hidden');
+        badge.style.opacity = '0.5';
+    } else {
+        manualDiv.classList.add('hidden');
+        badge.style.opacity = '1';
+        document.getElementById('turn-asker').value = players[currentTurnIndex];
+    }
+}
+
+function checkBluffUI() {
+    const s = document.getElementById('turn-suspect').value;
+    const w = document.getElementById('turn-weapon').value;
+    const r = document.getElementById('turn-room').value;
+    const asker = document.getElementById('turn-asker').value;
+    const indicator = document.getElementById('bluff-indicator');
+    
+    if (asker === myName) {
+        let bluffs = [s,w,r].filter(c => c && grid[c] && grid[c][myName] === 2);
+        if (bluffs.length > 0) indicator.innerHTML = `🤫 Stai bluffando su: <b>${bluffs.join(', ')}</b>`;
+        else indicator.innerHTML = "";
+    } else {
+        indicator.innerHTML = "";
+    }
+}
+
+function checkSpecialInput() {
+    const asker = document.getElementById('turn-asker').value;
+    const responder = document.getElementById('turn-responder').value;
+    const box = document.getElementById('private-reveal-box');
+    const select = document.getElementById('turn-card-shown');
+
+    if (asker === myName && responder !== 'none' && responder !== '' && responder !== myName) {
+        box.classList.remove('hidden');
+        const s = document.getElementById('turn-suspect').value;
+        const w = document.getElementById('turn-weapon').value;
+        const r = document.getElementById('turn-room').value;
+        
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">-- Seleziona carta vista --</option>';
+        [s, w, r].forEach(c => {
+            if(c) {
+                let opt = document.createElement('option');
+                opt.value = c; opt.text = c;
+                if(c === currentVal) opt.selected = true;
+                select.appendChild(opt);
+            }
+        });
+    } else {
+        box.classList.add('hidden');
+        select.value = "";
+    }
+}
+
+// --- LOGIC ---
+function submitTurn() {
+    const s = document.getElementById('turn-suspect').value;
+    const w = document.getElementById('turn-weapon').value;
+    const r = document.getElementById('turn-room').value;
+    const asker = document.getElementById('turn-asker').value;
+    const responder = document.getElementById('turn-responder').value;
+
+    if(!asker || !s || !w || !r) return alert("Compila tutti i campi!");
+    if(asker === responder) return alert("Errore: domanda e risposta stessa persona");
+
+    // History Save
+    history.push({
+        grid: JSON.parse(JSON.stringify(grid)),
+        constraints: JSON.parse(JSON.stringify(constraints)),
+        turnIndex: currentTurnIndex,
+        limits: JSON.parse(JSON.stringify(limits))
+    });
+    if(history.length > 50) history.shift();
+
+    const involved = [s, w, r];
+    log(`🔎 <b>${asker}</b> chiede: ${s}, ${w}, ${r}`);
+
+    // Pass logic
+    let currentIdx = (players.indexOf(asker) + 1) % players.length;
+    let loops = 0;
+    while(loops < players.length) {
+        const p = players[currentIdx];
+        if(p === responder) break;
+        if(responder === 'none' && p === asker) break;
+        
+        involved.forEach(c => setFact(c, p, 1)); // Mark as NO
+        currentIdx = (currentIdx + 1) % players.length;
+        loops++;
+    }
+
+    // Responder logic
+    if (responder !== 'none') {
+        log(`💡 <b>${responder}</b> ha mostrato una carta.`);
+        if (asker === myName) {
+            const seen = document.getElementById('turn-card-shown').value;
+            if (seen && involved.includes(seen)) {
+                log(`👁️ Hai visto: <span class="log-highlight">${seen}</span>`);
+                setFact(seen, responder, 2);
+            } else {
+                addConstraint(responder, involved);
+            }
+        } else if (responder !== myName) {
+            addConstraint(responder, involved);
+        }
+    } else {
+        log(`❌ Nessuno ha risposto!`);
+    }
+
+    // Reset UI
+    document.getElementById('turn-responder').value = "none";
+    document.getElementById('turn-suspect').value = "";
+    document.getElementById('turn-weapon').value = "";
+    document.getElementById('turn-room').value = "";
+    
+    currentTurnIndex = (currentTurnIndex + 1) % players.length;
+    updateTurnUI();
+    runSolver();
+}
+
+function undoLastTurn() {
+    if (history.length === 0) return alert("Nulla da annullare");
+    const last = history.pop();
+    grid = last.grid;
+    constraints = last.constraints;
+    currentTurnIndex = last.turnIndex;
+    log(`⏪ Turno annullato.`);
+    updateTurnUI();
+    renderGrid();
+}
+
+function addConstraint(player, cards) {
+    // Filtriamo le carte che sappiamo già essere possedute da ALTRI (quindi player non può averle)
+    // O che sappiamo che PLAYER non ha (grid === 1)
+    const possible = cards.filter(c => {
+        let ownedByOther = false;
+        players.forEach(p => { 
+            if(p !== player && grid[c][p] === 2) ownedByOther = true; 
+        });
+        const knownNotOwned = grid[c][player] === 1;
+        return !ownedByOther && !knownNotOwned;
+    });
+
+    if(possible.length === 0) {
+        log(`⚠️ <span style="color:var(--danger)">CONTRADDIZIONE: ${player} non può aver mostrato nulla perché le 3 carte sono già assegnate ad altri!</span>`);
+        return;
+    }
+
+    // Se rimane solo 1 possibilità, è una deduzione immediata!
+    if (possible.length === 1) {
+        setFact(possible[0], player, 2);
+        log(`⚡️ Deduzione Immediata: <b>${player}</b> ha <b>${possible[0]}</b>`);
+        return;
+    }
+    
+    // Controllo duplicati usando [...cards] per non mutare l'array originale
+    const sortedPossible = [...possible].sort();
+    const exists = constraints.some(con => 
+        con.player === player && 
+        JSON.stringify([...con.cards].sort()) === JSON.stringify(sortedPossible)
+    );
+
+    if (!exists) {
+        constraints.push({ player: player, cards: possible });
+        // Rilancia il solver perché un nuovo vincolo potrebbe sbloccare altre deduzioni
+        runSolver(); 
+    }
+}
+
+function setFact(card, player, status) {
+    const currentStatus = grid[card][player];
+
+    // Controllo coerenza
+    if (currentStatus !== 0 && currentStatus !== status) {
+        log(`⚠️ <span style="color:var(--danger)">CONTRADDIZIONE: il sistema pensava che ${player} ${currentStatus === 1 ? 'non avesse' : 'avesse'} ${card} ma ora dici che ${status === 1 ? 'non ce l\'ha' : 'ce l\'ha'}!</span>`);
+        return;
+    }
+
+    if (currentStatus === status) return;
+
+    grid[card][player] = status;
+
+    // Se è SI (2), tutti gli altri sono NO (1)
+    if (status === 2) {
+        players.forEach(p => { if (p !== player) setFact(card, p, 1); });
+        grid[card].SOL = 1;
+    }
+}
+
+function runSolver() {
+    let changed = true;
+    let loops = 0;
+    while(changed && loops < 50) {
+        changed = false;
+        const snap = JSON.stringify(grid);
+
+        // 1. Clean satisfied constraints
+        const nCons = constraints.length;
+        constraints = constraints.filter(con => !con.cards.some(c => grid[c][con.player] === 2));
+        if (constraints.length !== nCons) changed = true;
+
+        // 2. Math & Pigeonhole
+        players.forEach(p => {
+            let found = 0, unknown = [];
+            allCards.forEach(c => {
+                if(grid[c][p] === 2) found++;
+                if(grid[c][p] === 0) unknown.push(c);
+            });
+
+            if (found >= limits[p] && unknown.length > 0) {
+                unknown.forEach(c => setFact(c, p, 1)); changed = true;
+            }
+            if (found < limits[p] && (found + unknown.length === limits[p]) && unknown.length > 0) {
+                unknown.forEach(c => setFact(c, p, 2)); changed = true;
+            }
+            
+            // Advanced Pigeonhole (1 slot left)
+            if (limits[p] - found === 1) {
+                const pCons = constraints.filter(c => c.player === p);
+                if(pCons.length > 0) {
+                    const valid = new Set();
+                    pCons.forEach(con => con.cards.forEach(c => valid.add(c)));
+                    unknown.forEach(u => {
+                        if(!valid.has(u)) { setFact(u, p, 1); changed = true; }
+                    });
+                }
+            }
+        });
+
+        // 3. Direct Constraints
+        constraints.forEach(con => {
+            const possible = con.cards.filter(c => grid[c][con.player] !== 1);
+            if (possible.length === 1 && grid[possible[0]][con.player] !== 2) {
+                setFact(possible[0], con.player, 2);
+                log(`⚡️ Deduzione: <b>${con.player}</b> ha <b>${possible[0]}</b>`);
+                changed = true;
+            }
+        });
+
+        // 4. Global Solution
+        allCards.forEach(c => {
+            let allNo = true;
+            players.forEach(p => { if (grid[c][p] !== 1) allNo = false; });
+            if (allNo && grid[c].SOL !== 2) {
+                grid[c].SOL = 2;
+                log(`🏆 <b>SOLUZIONE TROVATA: ${c}</b>`);
+                changed = true;
+            }
+        });
+
+        // Category Elimination
+        [suspects, weapons, rooms].forEach(list => {
+            let owned = 0, unk = [];
+            list.forEach(c => { if(grid[c].SOL === 1) owned++; else if(grid[c].SOL === 0) unk.push(c); });
+            if (owned === list.length - 1 && unk.length === 1 && grid[unk[0]].SOL !== 2) {
+                grid[unk[0]].SOL = 2;
+                log(`🏆 <b>SOLUZIONE (Eliminazione): ${unk[0]}</b>`);
+                changed = true;
+            }
+        });
+
+        if (JSON.stringify(grid) !== snap) changed = true;
+        loops++;
+    }
+    renderGrid();
+}
+
+function renderGrid() {
+    const table = document.getElementById('main-grid');
+    let html = `<thead><tr><th>Carte</th>`;
+    players.forEach(p => html += `<th>${p.substring(0,4)}</th>`);
+    html += `</tr></thead><tbody>`;
+
+    const buildRows = (title, list) => {
+        html += `<tr style="background:#2d3748; color:#a0aec0; font-size:0.75rem;"><td colspan="${players.length+1}"><b>${title.toUpperCase()}</b></td></tr>`;
+        list.forEach(c => {
+            const isSol = grid[c].SOL === 2;
+            const rowClass = isSol ? 'c-sol' : '';
+            html += `<tr><td class="${rowClass}">${c}</td>`;
+            players.forEach(p => {
+                const val = grid[c][p];
+                let display = '&nbsp;';
+                let cls = 'c-unk';
+                
+                if (val === 2) { display = '✔'; cls = 'c-yes'; }
+                else if (val === 1) { display = '✘'; cls = 'c-no'; }
+                
+                html += `<td class="${cls}">${display}</td>`;
+            });
+            html += `</tr>`;
+        });
+    };
+
+    buildRows("Sospettati", suspects);
+    buildRows("Armi", weapons);
+    buildRows("Stanze", rooms);
+    table.innerHTML = html + "</tbody>";
+
+    const dash = document.getElementById('card-counts');
+    dash.innerHTML = "";
+    players.forEach(p => {
+        let found = 0;
+        allCards.forEach(c => { if(grid[c][p] === 2) found++; });
+        let cls = found === limits[p] ? 'full' : '';
+        dash.innerHTML += `<div class="stat-pill ${cls}"><b>${p}</b>: ${found}/${limits[p]}</div>`;
+    });
+}
+
+// Utils
+function switchView(f, t) { document.getElementById(f).classList.add('hidden'); document.getElementById(t).classList.remove('hidden'); }
+function log(m) { const el = document.getElementById('log-area'); el.innerHTML = `<div class="log-entry">${m}</div>` + el.innerHTML; }
+function populateSelect(id, list, addNone=false, label=null) {
+    const s = document.getElementById(id); s.innerHTML = '';
+    if(label) { const o = document.createElement('option'); o.value=""; o.text=label; s.appendChild(o); }
+    if(addNone) { const o = document.createElement('option'); o.value="none"; o.text="❌ NESSUNO (Tutti passano)"; s.appendChild(o); }
+    list.forEach(i => { const o = document.createElement('option'); o.value=i; o.text=i; s.appendChild(o); });
+}
+</script>
+</body>
+</html>
