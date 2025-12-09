@@ -139,7 +139,7 @@
             font-weight: 600; 
             color: var(--text-main);
             border-right: 2px solid var(--border);
-            max-width: 50px; overflow: hidden; text-overflow: ellipsis;
+            max-width: 80px; overflow: hidden; text-overflow: ellipsis;
         }
 
         /* Grid Colors */
@@ -714,7 +714,7 @@ function runSolver() {
 function renderGrid() {
     const table = document.getElementById('main-grid');
     let html = `<thead><tr><th>Carte</th>`;
-    players.forEach(p => html += `<th>${p.substring(0,6)}</th>`);
+    players.forEach(p => html += `<th>${p.substring(0,4)}</th>`);
     html += `</tr></thead><tbody>`;
 
     const buildRows = (title, list) => {
