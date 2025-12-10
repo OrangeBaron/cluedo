@@ -90,20 +90,13 @@
         </div>
 
         <div class="card turn-card">
-            <div class="turn-header">
-                <span class="active-badge" id="turn-display-name">Giocatore 1</span>
-                <div style="display:flex">
-                    <button class="secondary" onclick="undoLastTurn()">↩️&nbsp;Annulla</button>
-                    <button class="secondary" onclick="toggleManualTurn()" style="margin-left:5px">✏️&nbsp;Manuale</button>
-                </div>
-            </div>
-
-            <div id="manual-asker-div" class="hidden" style="margin-bottom:10px;">
-                <label style="font-size:0.8rem; color:var(--text-muted)">Chi sta chiedendo?</label>
-                <select id="turn-asker" onchange="checkSpecialInput()"></select>
+            <div class="turn-header" style="justify-content: flex-end;">
+                <button class="secondary" onclick="undoLastTurn()">↩️&nbsp;Annulla Ultimo</button>
             </div>
 
             <div class="selector-group">
+                <select id="turn-asker" onchange="checkBluffUI(); checkSpecialInput();"></select>
+                
                 <select id="turn-suspect" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>👤 Sospettato</option></select>
                 <select id="turn-weapon" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🔫 Arma</option></select>
                 <select id="turn-room" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🏰 Stanza</option></select>

@@ -113,7 +113,7 @@ function finalizeSetup() {
     const remainder = CARDS_IN_DECK % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
 
-    populateSelect('turn-asker', players);
+    populateSelect('turn-asker', players, false, "🗣️ Chi chiede?");
     populateSelect('turn-responder', players, true);
     populateSelect('turn-suspect', suspects, false, "👤 Sospettato");
     populateSelect('turn-weapon', weapons, false, "🔫 Arma");
@@ -130,23 +130,12 @@ function finalizeSetup() {
 // --- TURN UI ---
 function updateTurnUI() {
     const currentPlayer = players[currentTurnIndex];
-    document.getElementById('turn-display-name').innerText = "Turno di: " + currentPlayer;
+    
+    // Seleziona automaticamente il giocatore nel menu a tendina
     document.getElementById('turn-asker').value = currentPlayer;
+    
     checkSpecialInput();
     checkBluffUI();
-}
-
-function toggleManualTurn() {
-    const manualDiv = document.getElementById('manual-asker-div');
-    const badge = document.getElementById('turn-display-name');
-    if (manualDiv.classList.contains('hidden')) {
-        manualDiv.classList.remove('hidden');
-        badge.style.opacity = '0.5';
-    } else {
-        manualDiv.classList.add('hidden');
-        badge.style.opacity = '1';
-        document.getElementById('turn-asker').value = players[currentTurnIndex];
-    }
 }
 
 function checkBluffUI() {
