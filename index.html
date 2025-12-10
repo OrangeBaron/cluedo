@@ -273,9 +273,9 @@
             </div>
 
             <div class="selector-group">
-                <select id="turn-suspect" onchange="checkBluffUI();checkSpecialInput();"><option value="">👤 Sospettato</option></select>
-                <select id="turn-weapon" onchange="checkBluffUI();checkSpecialInput();"><option value="">🔫 Arma</option></select>
-                <select id="turn-room" onchange="checkBluffUI();checkSpecialInput();"><option value="">🏰 Stanza</option></select>
+                <select id="turn-suspect" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>👤 Sospettato</option></select>
+                <select id="turn-weapon" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🔫 Arma</option></select>
+                <select id="turn-room" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🏰 Stanza</option></select>
             </div>
             
             <div id="bluff-indicator" class="bluff-msg"></div>
@@ -503,7 +503,7 @@ function checkSpecialInput() {
         const r = document.getElementById('turn-room').value;
         
         const currentVal = select.value;
-        select.innerHTML = '<option value="">-- Seleziona carta vista --</option>';
+        select.innerHTML = '<option value="" disabled selected>-- Seleziona carta vista --</option>';
         [s, w, r].forEach(c => {
             if(c) {
                 let opt = document.createElement('option');
@@ -526,8 +526,19 @@ function submitTurn() {
     const asker = document.getElementById('turn-asker').value;
     const responder = document.getElementById('turn-responder').value;
 
+    // Controllo base campi obbligatori
     if(!asker || !s || !w || !r) return alert("Compila tutti i campi!");
-    if(asker === responder) return alert("Errore: domanda e risposta stessa persona");
+
+    // Controllo coerenza
+    if(asker === responder) return alert("Domanda e risposta dalla stessa persona!");
+
+    // Se sono IO a chiedere e QUALCUNO risponde (che non sono io), DEVO aver selezionato la carta vista
+    if (asker === myName && responder !== 'none' && responder !== '' && responder !== myName) {
+        const seenCard = document.getElementById('turn-card-shown').value;
+        if (!seenCard) {
+            return alert("Non hai specificato quale carta ti ha mostrato " + responder + "!");
+        }
+    }
 
     // History Save
     history.push({
@@ -890,7 +901,7 @@ function log(m) {
 }
 function populateSelect(id, list, addNone=false, label=null) {
     const s = document.getElementById(id); s.innerHTML = '';
-    if(label) { const o = document.createElement('option'); o.value=""; o.text=label; s.appendChild(o); }
+    if(label) { const o = document.createElement('option'); o.value=""; o.text=label; o.disabled = true; o.selected = true; s.appendChild(o); }
     if(addNone) { const o = document.createElement('option'); o.value="none"; o.text="❌ NESSUNO (Tutti passano)"; s.appendChild(o); }
     list.forEach(i => { const o = document.createElement('option'); o.value=i; o.text=i; s.appendChild(o); });
 }
