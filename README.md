@@ -30,7 +30,7 @@ Mentre i tuoi amici faticano a ricordare chi ha mostrato cosa tre turni fa, ques
 * **🧠 Motore Deduttivo:** Algoritmo iterativo che incrocia le informazioni pubbliche e private per dedurre le carte in mano agli avversari.
 * **🔮 Deep Scan:** Quando la logica standard si ferma, il sistema avvia una simulazione in background. Testa scenari ipotetici ("Se Tizio avesse questa carta...") per trovare contraddizioni matematiche e forzare deduzioni impossibili da vedere a occhio nudo.
 * **🚫 Gestione Vincoli:** Se un giocatore mostra una carta a qualcun altro, il sistema ricorda il gruppo di possibilità e lo risolve automaticamente appena ottiene nuove informazioni.
-* **✏️ Editor Turni:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa (Undo) o inserire dati manualmente.
+* **✏️ Editor Turni:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa o inserire dati manualmente.
 * **📥 Esportazione Log:** Scarica un file di testo con l'intera cronologia delle mosse e lo stato finale della griglia per analizzare la partita (o dimostrare la tua ragione) post-mortem.
 * **📱 Mobile First:** Interfaccia "Dark Mode" ottimizzata per smartphone, così puoi tenerlo nascosto sotto il tavolo.
 * **🤫 Rilevatore di Bluff:** Ti avvisa se qualcuno sta facendo una domanda su carte che possiede già.
