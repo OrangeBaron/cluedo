@@ -1,6 +1,6 @@
 // === CLUEDO MONTE CARLO SIMULATION ===
 
-const ITERATIONS = 100; // Numero di simulazioni per configurazione
+const ITERATIONS = 200; // Numero di simulazioni per configurazione
 
 (async function runMonteCarlo() {
     // --- GESTIONE LOG & REDRAW SYSTEM ---
@@ -108,16 +108,34 @@ const ITERATIONS = 100; // Numero di simulazioni per configurazione
             const candsW = getCandidates(weapons);
             const candsR = getCandidates(rooms);
 
+            const constraintCards = new Set();
+            constraints.forEach(con => con.cards.forEach(c => constraintCards.add(c)));
+
+            const pickSmart = (candidates) => {
+                const priority = candidates.filter(c => constraintCards.has(c));
+                
+                if (priority.length > 0) {
+                    return priority[Math.floor(Math.random() * priority.length)];
+                }
+
+                return candidates[Math.floor(Math.random() * candidates.length)];
+            };
+
             let guess = [];
             let isValidBluff = false;
             let attempts = 0;
-            while (!isValidBluff && attempts < 20) {
-                const s = candsS[Math.floor(Math.random() * candsS.length)];
-                const w = candsW[Math.floor(Math.random() * candsW.length)];
-                const r = candsR[Math.floor(Math.random() * candsR.length)];
+
+            while (!isValidBluff && attempts < 50) {
+                const s = pickSmart(candsS);
+                const w = pickSmart(candsW);
+                const r = pickSmart(candsR);
+                
                 guess = [s, w, r];
+
                 const ownedCount = guess.filter(c => trueHands[currentPlayer].includes(c)).length;
+
                 if (ownedCount < 3) isValidBluff = true;
+                
                 attempts++;
             }
 
