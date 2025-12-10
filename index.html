@@ -328,6 +328,7 @@ let constraints = [];
 let currentTurnIndex = 0;
 let history = [];
 let fullGameLogs = [];
+let isSimulating = false;
 
 // --- SETUP FUNCTIONS ---
 function handleEnter(e) { if(e.key === 'Enter') addPlayer(); }
@@ -636,6 +637,9 @@ function setFact(card, player, status) {
 
     // Controllo coerenza
     if (currentStatus !== 0 && currentStatus !== status) {
+        // SE STIAMO SIMULANDO significa che l'ipotesi era falsa!
+        if (isSimulating) throw "SIM_CONTRADICTION"; 
+        
         log(`⚠️ <span style="color:var(--danger)">CONTRADDIZIONE: il sistema pensava che ${player} ${currentStatus === 1 ? 'non avesse' : 'avesse'} ${card} ma ora dici che ${status === 1 ? 'non ce l\'ha' : 'ce l\'ha'}!</span>`);
         return;
     }
@@ -651,82 +655,193 @@ function setFact(card, player, status) {
     }
 }
 
-function runSolver() {
+function runSolver(fromSimulation = false) {
     let changed = true;
     let loops = 0;
-    while(changed && loops < 50) {
-        changed = false;
-        const snap = JSON.stringify(grid);
+    
+    // Protezione per non andare in loop infinito durante la simulazione
+    const maxLoops = fromSimulation ? 20 : 50; 
 
-        // 1. Clean satisfied constraints
-        const nCons = constraints.length;
-        constraints = constraints.filter(con => !con.cards.some(c => grid[c][con.player] === 2));
-        if (constraints.length !== nCons) changed = true;
+    try {
+        while(changed && loops < maxLoops) {
+            changed = false;
+            const snap = JSON.stringify(grid);
 
-        // 2. Math & Pigeonhole
-        players.forEach(p => {
-            let found = 0, unknown = [];
-            allCards.forEach(c => {
-                if(grid[c][p] === 2) found++;
-                if(grid[c][p] === 0) unknown.push(c);
+            // 1. Clean satisfied constraints
+            const nCons = constraints.length;
+            constraints = constraints.filter(con => !con.cards.some(c => grid[c][con.player] === 2));
+            if (constraints.length !== nCons) changed = true;
+
+            // 2. Math & Pigeonhole
+            players.forEach(p => {
+                let found = 0, unknown = [];
+                allCards.forEach(c => {
+                    if(grid[c][p] === 2) found++;
+                    if(grid[c][p] === 0) unknown.push(c);
+                });
+
+                // Controllo Limiti (Cruciale per la simulazione)
+                if (found > limits[p]) {
+                    if (isSimulating) throw "SIM_LIMIT_EXCEEDED"; // Stop immediato
+                    log(`⚠️ Errore matematico: ${p} ha troppe carte!`);
+                }
+
+                if (found === limits[p] && unknown.length > 0) {
+                    unknown.forEach(c => setFact(c, p, 1)); changed = true;
+                }
+                if (found < limits[p] && (found + unknown.length === limits[p]) && unknown.length > 0) {
+                    unknown.forEach(c => setFact(c, p, 2)); changed = true;
+                }
+                
+                // Advanced Pigeonhole (1 slot left)
+                if (limits[p] - found === 1) {
+                    const pCons = constraints.filter(c => c.player === p);
+                    if(pCons.length > 0) {
+                        const valid = new Set();
+                        pCons.forEach(con => con.cards.forEach(c => valid.add(c)));
+                        unknown.forEach(u => {
+                            if(!valid.has(u)) { setFact(u, p, 1); changed = true; }
+                        });
+                    }
+                }
             });
 
-            if (found >= limits[p] && unknown.length > 0) {
-                unknown.forEach(c => setFact(c, p, 1)); changed = true;
-            }
-            if (found < limits[p] && (found + unknown.length === limits[p]) && unknown.length > 0) {
-                unknown.forEach(c => setFact(c, p, 2)); changed = true;
-            }
-            
-            // Advanced Pigeonhole (1 slot left)
-            if (limits[p] - found === 1) {
-                const pCons = constraints.filter(c => c.player === p);
-                if(pCons.length > 0) {
-                    const valid = new Set();
-                    pCons.forEach(con => con.cards.forEach(c => valid.add(c)));
-                    unknown.forEach(u => {
-                        if(!valid.has(u)) { setFact(u, p, 1); changed = true; }
-                    });
+            // 3. Direct Constraints
+            constraints.forEach(con => {
+                const possible = con.cards.filter(c => grid[c][con.player] !== 1);
+                if (possible.length === 0) {
+                    if (isSimulating) throw "SIM_IMPOSSIBLE_CONSTRAINT";
                 }
-            }
-        });
+                if (possible.length === 1 && grid[possible[0]][con.player] !== 2) {
+                    setFact(possible[0], con.player, 2);
+                    if(!isSimulating) log(`⚡️ Deduzione: <b>${con.player}</b> ha <b>${possible[0]}</b>`);
+                    changed = true;
+                }
+            });
 
-        // 3. Direct Constraints
-        constraints.forEach(con => {
-            const possible = con.cards.filter(c => grid[c][con.player] !== 1);
-            if (possible.length === 1 && grid[possible[0]][con.player] !== 2) {
-                setFact(possible[0], con.player, 2);
-                log(`⚡️ Deduzione: <b>${con.player}</b> ha <b>${possible[0]}</b>`);
-                changed = true;
-            }
-        });
+            // 4. Intersezione Vincoli (Deep Logic)
+            players.forEach(p => {
+                let knownHeld = 0;
+                allCards.forEach(c => { if(grid[c][p] === 2) knownHeld++; });
+                const slotsLeft = limits[p] - knownHeld;
 
-        // 4. Global Solution
-        allCards.forEach(c => {
-            let allNo = true;
-            players.forEach(p => { if (grid[c][p] !== 1) allNo = false; });
-            if (allNo && grid[c].SOL !== 2) {
-                grid[c].SOL = 2;
-                log(`🏆 <b>SOLUZIONE TROVATA: ${c}</b>`);
-                changed = true;
-            }
-        });
+                if (slotsLeft === 1) {
+                    const pCons = constraints.filter(c => c.player === p);
+                    if (pCons.length >= 2) {
+                        let intersection = pCons[0].cards.filter(c => grid[c][p] !== 1);
+                        for (let i = 1; i < pCons.length; i++) {
+                            const currentCards = pCons[i].cards;
+                            intersection = intersection.filter(c => currentCards.includes(c));
+                        }
+                        if (intersection.length === 1) {
+                            const target = intersection[0];
+                            if (grid[target][p] !== 2) {
+                                setFact(target, p, 2);
+                                if(!isSimulating) log(`⚡️ Deduzione (Intersezione): <b>${p}</b> deve avere <b>${target}</b>`);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            });
 
-        // Category Elimination
-        [suspects, weapons, rooms].forEach(list => {
-            let owned = 0, unk = [];
-            list.forEach(c => { if(grid[c].SOL === 1) owned++; else if(grid[c].SOL === 0) unk.push(c); });
-            if (owned === list.length - 1 && unk.length === 1 && grid[unk[0]].SOL !== 2) {
-                grid[unk[0]].SOL = 2;
-                log(`🏆 <b>SOLUZIONE (Eliminazione): ${unk[0]}</b>`);
-                changed = true;
-            }
-        });
+            // 5. Global Solution
+            allCards.forEach(c => {
+                let allNo = true;
+                players.forEach(p => { if (grid[c][p] !== 1) allNo = false; });
+                if (allNo && grid[c].SOL !== 2) {
+                    grid[c].SOL = 2;
+                    if(!isSimulating) log(`🏆 <b>SOLUZIONE TROVATA: ${c}</b>`);
+                    changed = true;
+                }
+            });
+            
+             // Category Elimination
+            [suspects, weapons, rooms].forEach(list => {
+                let owned = 0, unk = [];
+                list.forEach(c => { if(grid[c].SOL === 1) owned++; else if(grid[c].SOL === 0) unk.push(c); });
+                if (owned === list.length - 1 && unk.length === 1 && grid[unk[0]].SOL !== 2) {
+                    grid[unk[0]].SOL = 2;
+                    if(!isSimulating) log(`🏆 <b>SOLUZIONE (Eliminazione): ${unk[0]}</b>`);
+                    changed = true;
+                }
+            });
 
-        if (JSON.stringify(grid) !== snap) changed = true;
-        loops++;
+            if (JSON.stringify(grid) !== snap) changed = true;
+            loops++;
+        }
+    } catch (e) {
+        // Se siamo in simulazione, rilanciamo l'errore al gestore DeepScan
+        if (isSimulating) throw e; 
+        console.error(e);
     }
-    renderGrid();
+
+    // Se NON siamo in simulazione e il solver standard si è fermato, proviamo il Deep Scan
+    if (!fromSimulation && !isSimulating) {
+        runDeepScan();
+        renderGrid();
+    }
+}
+
+function runDeepScan() {
+    isSimulating = true;
+
+    // Troviamo tutte le celle incerte (0) interessanti
+    // Ottimizzazione: ordiniamo per quelle che hanno più probabilità di causare crash (es. giocatori con pochi slot liberi)
+    const candidates = [];
+    allCards.forEach(c => {
+        players.forEach(p => {
+            if (grid[c][p] === 0) candidates.push({card: c, player: p});
+        });
+    });
+
+    // Salviamo lo stato una volta sola per evitare overhead se non serve
+    // Ma qui dobbiamo salvare/ripristinare per OGNI tentativo
+    
+    for (const cand of candidates) {
+        // Snapshot dello stato attuale
+        const savedGrid = JSON.stringify(grid);
+        const savedConstraints = JSON.stringify(constraints);
+
+        try {
+            // IPOTESI: "Facciamo finta che P abbia la carta C"
+            // Usiamo grid diretta per evitare controlli di setFact qui
+            grid[cand.card][cand.player] = 2; 
+
+            // Lanciamo il solver in modalità simulazione
+            // Se c'è una contraddizione, lancerà un'eccezione
+            runSolver(true); 
+
+            // Se arriviamo qui, l'ipotesi è plausibile (non ha creato errori).
+            // Non possiamo dedurre nulla. Ripristiniamo e passiamo alla prossima.
+            grid = JSON.parse(savedGrid);
+            constraints = JSON.parse(savedConstraints);
+
+        } catch (e) {
+            // ECCEZIONE CATTURATA! 
+            // Significa che l'ipotesi "P ha C" ha rotto la logica.
+            // QUINDI: P NON può avere C.
+            
+            // 1. Ripristiniamo lo stato pulito
+            grid = JSON.parse(savedGrid);
+            constraints = JSON.parse(savedConstraints);
+            
+            // 2. Spegniamo la simulazione per poter scrivere il log e salvare il fatto reale
+            isSimulating = false; 
+            
+            log(`🧠 <b>Deep Scan</b>: Se <b>${cand.player}</b> avesse <b>${cand.card}</b>, i conti non tornerebbero. Quindi NON ce l'ha.`);
+            setFact(cand.card, cand.player, 1); // Segniamo come NO certo
+
+            // 3. Spegniamo la modalità simulazione per il resto del loop (o usciamo)
+            // Se abbiamo trovato qualcosa, meglio fermarsi e rilanciare il solver principale
+            // perché questo NO potrebbe sbloccare altre cose ovvie.
+            isSimulating = false;
+            runSolver();
+            return; 
+        }
+    }
+
+    isSimulating = false;
 }
 
 function renderGrid() {
@@ -763,7 +878,9 @@ function renderGrid() {
 
 // Utils
 function switchView(f, t) { document.getElementById(f).classList.add('hidden'); document.getElementById(t).classList.remove('hidden'); }
-function log(m) { 
+function log(m) {
+    if (isSimulating) return;
+
     const textOnly = m.replace(/<[^>]*>/g, '');
     const time = new Date().toLocaleTimeString();
     fullGameLogs.push(`[${time}] ${textOnly}`);
