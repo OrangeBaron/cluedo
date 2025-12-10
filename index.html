@@ -468,10 +468,22 @@ function checkBluffUI() {
     const asker = document.getElementById('turn-asker').value;
     const indicator = document.getElementById('bluff-indicator');
     
-    if (asker === myName) {
-        let bluffs = [s,w,r].filter(c => c && grid[c] && grid[c][myName] === 2);
-        if (bluffs.length > 0) indicator.innerHTML = `🤫 Stai bluffando su: <b>${bluffs.join(', ')}</b>`;
-        else indicator.innerHTML = "";
+    if (!asker) {
+        indicator.innerHTML = "";
+        return;
+    }
+
+    // Filtra le carte selezionate verificando se grid[carta][asker] è uguale a 2 (Posseduta)
+    let bluffs = [s, w, r].filter(c => c && grid[c] && grid[c][asker] === 2);
+    
+    if (bluffs.length > 0) {
+        if (asker === myName) {
+            indicator.style.color = "var(--success)";
+            indicator.innerHTML = `🤫 Stai bluffando su: <b>${bluffs.join(', ')}</b>`;
+        } else {
+            indicator.style.color = "var(--accent)";
+            indicator.innerHTML = `⚠️ <b>${asker}</b> sta bluffando! Sappiamo che ha: <b>${bluffs.join(', ')}</b>`;
+        }
     } else {
         indicator.innerHTML = "";
     }
