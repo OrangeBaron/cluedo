@@ -28,10 +28,12 @@ Mentre i tuoi amici faticano a ricordare chi ha mostrato cosa tre turni fa, ques
 
 * **🕵️ Gestione Giocatori:** Supporta da 3 a 6 giocatori con calcolo automatico della distribuzione delle carte.
 * **🧠 Motore Deduttivo:** Algoritmo iterativo che incrocia le informazioni pubbliche e private per dedurre le carte in mano agli avversari.
+* **🔮 Deep Scan:** Quando la logica standard si ferma, il sistema avvia una simulazione in background. Testa scenari ipotetici ("Se Tizio avesse questa carta...") per trovare contraddizioni matematiche e forzare deduzioni impossibili da vedere a occhio nudo.
 * **🚫 Gestione Vincoli:** Se un giocatore mostra una carta a qualcun altro, il sistema ricorda il gruppo di possibilità e lo risolve automaticamente appena ottiene nuove informazioni.
-* **✏️ Editor Turni:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa (Undo).
+* **✏️ Editor Turni:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa (Undo) o inserire dati manualmente.
+* **📥 Esportazione Log:** Scarica un file di testo con l'intera cronologia delle mosse e lo stato finale della griglia per analizzare la partita (o dimostrare la tua ragione) post-mortem.
 * **📱 Mobile First:** Interfaccia "Dark Mode" ottimizzata per smartphone, così puoi tenerlo nascosto sotto il tavolo.
-* **🤫 Rilevatore di Bluff:** Ti avvisa se stai per fare una domanda su carte che possiedi già (utile per confondere le acque).
+* **🤫 Rilevatore di Bluff:** Ti avvisa se qualcuno sta facendo una domanda su carte che possiede già.
 
 ## 🚀 Come usarlo
 
@@ -54,6 +56,7 @@ Il codice è scritto in **Vanilla JS** (nessun framework pesante). La logica di 
 * **Esclusione Diretta:** Se P1 ha la carta X, nessun altro ce l'ha.
 * **Insiemi di Vincoli:** Quando P1 mostra una carta a P2 per la domanda {A, B, C}, il sistema sa che P1 possiede almeno una tra A, B o C. Se in seguito scopriamo che P1 non ha né A né B, il sistema deduce che ha C.
 * **Principio dei Cassetti (Pigeonhole):** Se sappiamo che P1 ha 3 carte in totale e ne abbiamo già identificate 3, tutte le altre carte del mazzo sono segnate come "NON possedute" da P1.
+* **Reductio ad Absurdum (Deep Scan):** Il solver esegue tentativi "brute-force" intelligenti sulle celle incerte. Se ipotizzando che un giocatore abbia una certa carta si genera un errore logico a catena (es. un altro giocatore finisce con carte negative o vincoli impossibili), il sistema scarta quell'ipotesi con certezza assoluta.
 
 ## 🤝 Contribuire
 
