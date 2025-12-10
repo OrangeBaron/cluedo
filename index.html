@@ -273,9 +273,9 @@
             </div>
 
             <div class="selector-group">
-                <select id="turn-suspect" onchange="checkBluffUI()"><option value="">👤 Sospettato</option></select>
-                <select id="turn-weapon" onchange="checkBluffUI()"><option value="">🔫 Arma</option></select>
-                <select id="turn-room" onchange="checkBluffUI()"><option value="">🏰 Stanza</option></select>
+                <select id="turn-suspect" onchange="checkBluffUI();checkSpecialInput();"><option value="">👤 Sospettato</option></select>
+                <select id="turn-weapon" onchange="checkBluffUI();checkSpecialInput();"><option value="">🔫 Arma</option></select>
+                <select id="turn-room" onchange="checkBluffUI();checkSpecialInput();"><option value="">🏰 Stanza</option></select>
             </div>
             
             <div id="bluff-indicator" class="bluff-msg"></div>
