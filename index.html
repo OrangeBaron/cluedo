@@ -31,7 +31,6 @@
 
             <div class="input-row" style="flex-direction: column;">
                 <select id="who-am-i"><option value="" disabled selected>Tu chi sei?</option></select>
-                <select id="starting-player"><option value="" disabled selected>Chi inizia?</option></select>
             </div>
         </div>
 
@@ -94,9 +93,13 @@
                 <button class="secondary" onclick="undoLastTurn()">↩️&nbsp;Annulla Ultimo</button>
             </div>
 
+            <div style="margin-bottom:15px;">
+                <label class="input-label">Chi sta chiedendo?</label>
+                <select id="turn-asker" onchange="checkBluffUI(); checkSpecialInput()"></select>
+            </div>
+
+            <label class="input-label">Ipotesi formulata</label>
             <div class="selector-group">
-                <select id="turn-asker" onchange="checkBluffUI(); checkSpecialInput();"></select>
-                
                 <select id="turn-suspect" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>👤 Sospettato</option></select>
                 <select id="turn-weapon" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🔫 Arma</option></select>
                 <select id="turn-room" onchange="checkBluffUI(); checkSpecialInput();"><option value="" disabled selected>🏰 Stanza</option></select>
@@ -105,10 +108,9 @@
             <div id="bluff-indicator" class="bluff-msg"></div>
 
             <div style="margin-top: 15px; padding-top:15px; border-top:1px solid #4a5568;">
-                <label style="font-size:0.85rem; color:var(--text-muted); display:block; margin-bottom:5px;">Chi ha mostrato una carta?</label>
+                <label class="input-label">Chi ha mostrato una carta?</label>
                 <select id="turn-responder" onchange="checkSpecialInput()">
-                    <option value="none">❌ NESSUNO (Tutti passano)</option>
-                </select>
+                    </select>
             </div>
             
             <div id="private-reveal-box" class="hidden special-box">

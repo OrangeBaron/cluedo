@@ -30,10 +30,8 @@ function addPlayer() {
         document.getElementById('player-list').innerHTML += `<span class="player-tag">${players.length}. ${name}</span>`;
         
         const meSelect = document.getElementById('who-am-i');
-        const startSelect = document.getElementById('starting-player');
         
         const opt1 = document.createElement('option'); opt1.value = name; opt1.text = name; meSelect.appendChild(opt1);
-        const opt2 = document.createElement('option'); opt2.value = name; opt2.text = name; startSelect.appendChild(opt2);
         
         input.value = ''; input.focus();
 
@@ -113,26 +111,24 @@ function finalizeSetup() {
     const remainder = CARDS_IN_DECK % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
 
-    populateSelect('turn-asker', players, false, "🗣️ Chi chiede?");
+    // Configurazione menu a tendina
+    populateSelect('turn-asker', players); 
     populateSelect('turn-responder', players, true);
     populateSelect('turn-suspect', suspects, false, "👤 Sospettato");
     populateSelect('turn-weapon', weapons, false, "🔫 Arma");
     populateSelect('turn-room', rooms, false, "🏰 Stanza");
 
-    const starterName = document.getElementById('starting-player').value;
-    currentTurnIndex = players.indexOf(starterName) >= 0 ? players.indexOf(starterName) : 0;
+    currentTurnIndex = 0;
+    
+    updateTurnUI(); 
 
-    updateTurnUI();
     switchView('view-hand', 'view-game');
     runSolver();
 }
 
 // --- TURN UI ---
 function updateTurnUI() {
-    const currentPlayer = players[currentTurnIndex];
-    
-    // Seleziona automaticamente il giocatore nel menu a tendina
-    document.getElementById('turn-asker').value = currentPlayer;
+    document.getElementById('turn-asker').value = players[currentTurnIndex];
     
     checkSpecialInput();
     checkBluffUI();
@@ -265,7 +261,8 @@ function submitTurn() {
     document.getElementById('turn-weapon').value = "";
     document.getElementById('turn-room').value = "";
     
-    currentTurnIndex = (currentTurnIndex + 1) % players.length;
+    currentTurnIndex = (players.indexOf(asker) + 1) % players.length;
+    
     updateTurnUI();
     runSolver();
 }

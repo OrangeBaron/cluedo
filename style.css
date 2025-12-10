@@ -45,6 +45,13 @@ p { color: var(--text-muted); line-height: 1.5; font-size: 0.95rem; }
 @keyframes fadeIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
 
 /* INPUTS & BUTTONS */
+.input-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    margin-left: 2px;
+}
 input, select {
     width: 100%;
     background: var(--bg-input);
