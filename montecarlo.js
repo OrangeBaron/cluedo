@@ -1,6 +1,6 @@
 // === CLUEDO MONTE CARLO SIMULATION ===
 
-const ITERATIONS = 200; // Numero di simulazioni per configurazione
+const ITERATIONS = 100; // Numero di simulazioni per configurazione
 
 (async function runMonteCarlo() {
     // --- GESTIONE LOG & REDRAW SYSTEM ---
@@ -104,39 +104,90 @@ const ITERATIONS = 200; // Numero di simulazioni per configurazione
                 });
                 return valid.length > 0 ? valid : [categoryList[0]]; 
             };
-            const candsS = getCandidates(suspects);
-            const candsW = getCandidates(weapons);
-            const candsR = getCandidates(rooms);
 
-            const constraintCards = new Set();
-            constraints.forEach(con => con.cards.forEach(c => constraintCards.add(c)));
-
-            const pickSmart = (candidates) => {
-                const priority = candidates.filter(c => constraintCards.has(c));
-                
-                if (priority.length > 0) {
-                    return priority[Math.floor(Math.random() * priority.length)];
-                }
-
-                return candidates[Math.floor(Math.random() * candidates.length)];
+            // --- STRATEGIA "SCIENTIFIC BLUFF" ---
+            
+            // 1. Definiamo i pool di carte disponibili
+            const myHand = trueHands[currentPlayer];
+            
+            // Funzione per ottenere candidati validi (Esclude solo chi sappiamo che ce l'ha)
+            const getSmartCandidates = (list) => {
+                return list.filter(card => {
+                    // Escludiamo carte possedute da ALTRI giocatori noti
+                    const knownOwner = players.find(p => p !== currentPlayer && grid[card][p] === 2);
+                    return !knownOwner;
+                });
             };
+            
+            // Pool di carte che potrebbero essere la soluzione (SOL == 0)
+            // Queste sono i nostri "Bersagli"
+            const unknownSuspects = suspects.filter(c => grid[c].SOL === 0);
+            const unknownWeapons = weapons.filter(c => grid[c].SOL === 0);
+            const unknownRooms    = rooms.filter(c => grid[c].SOL === 0);
+
+            // Se non ci sono incognite (caso raro/finale), usiamo tutti i validi
+            const targetS = unknownSuspects.length > 0 ? unknownSuspects : getSmartCandidates(suspects);
+            const targetW = unknownWeapons.length > 0 ? unknownWeapons : getSmartCandidates(weapons);
+            const targetR = unknownRooms.length > 0 ? unknownRooms : getSmartCandidates(rooms);
 
             let guess = [];
             let isValidBluff = false;
             let attempts = 0;
 
+            // Tentiamo di costruire una mano "1 Ignoto + 2 Mie"
             while (!isValidBluff && attempts < 50) {
-                const s = pickSmart(candsS);
-                const w = pickSmart(candsW);
-                const r = pickSmart(candsR);
                 
+                // Scegliamo una categoria "Bersaglio" a caso (chi vogliamo testare oggi?)
+                const focusType = Math.floor(Math.random() * 3); // 0=S, 1=W, 2=R
+                
+                let s, w, r;
+
+                // LOGICA: Se ho una carta mia nella categoria, la uso come scudo.
+                // Se è la categoria bersaglio, invece, prendo un'incognita.
+
+                // SUSPECT
+                if (focusType === 0) { // Questo è il bersaglio
+                    s = targetS[Math.floor(Math.random() * targetS.length)];
+                } else { // Uso una mia carta se ce l'ho, altrimenti un'incognita a caso
+                    const myS = suspects.filter(c => myHand.includes(c));
+                    s = myS.length > 0 ? myS[Math.floor(Math.random() * myS.length)] : targetS[Math.floor(Math.random() * targetS.length)];
+                }
+
+                // WEAPON
+                if (focusType === 1) {
+                    w = targetW[Math.floor(Math.random() * targetW.length)];
+                } else {
+                    const myW = weapons.filter(c => myHand.includes(c));
+                    w = myW.length > 0 ? myW[Math.floor(Math.random() * myW.length)] : targetW[Math.floor(Math.random() * targetW.length)];
+                }
+
+                // ROOM
+                if (focusType === 2) {
+                    r = targetR[Math.floor(Math.random() * targetR.length)];
+                } else {
+                    const myR = rooms.filter(c => myHand.includes(c));
+                    r = myR.length > 0 ? myR[Math.floor(Math.random() * myR.length)] : targetR[Math.floor(Math.random() * targetR.length)];
+                }
+
                 guess = [s, w, r];
-
-                const ownedCount = guess.filter(c => trueHands[currentPlayer].includes(c)).length;
-
+                
+                // Verifica validità standard (non chiedere 3 carte che ho già)
+                const ownedCount = guess.filter(c => myHand.includes(c)).length;
                 if (ownedCount < 3) isValidBluff = true;
                 
                 attempts++;
+            }
+            
+            // Fallback disperato: se il loop sopra fallisce (raro), usa il random puro vecchio stile
+            if (!isValidBluff) {
+                 const candsS = getCandidates(suspects);
+                 const candsW = getCandidates(weapons);
+                 const candsR = getCandidates(rooms);
+                 guess = [
+                    candsS[Math.floor(Math.random() * candsS.length)],
+                    candsW[Math.floor(Math.random() * candsW.length)],
+                    candsR[Math.floor(Math.random() * candsR.length)]
+                 ];
             }
 
             if (guess[0] === solution[0] && guess[1] === solution[1] && guess[2] === solution[2]) {
