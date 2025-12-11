@@ -43,6 +43,15 @@ const ITERATIONS = 100; // Numero di simulazioni per configurazione
         }
     }
 
+    // --- DISABILITAZIONE UI E NAVIGATORE ---
+    const originalUpdateTactics = window.updateTacticalSuggestions;
+    const originalUpdateTurnUI = window.updateTurnUI;
+    const originalRenderGrid = window.renderGrid;
+
+    window.updateTacticalSuggestions = () => {};
+    window.updateTurnUI = () => {};
+    window.renderGrid = () => {};
+
     // --- SETUP DATI ---
     const PLAYER_COUNTS = [3, 4, 5, 6];
     const POOL_NAMES = ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"];
@@ -316,6 +325,10 @@ const ITERATIONS = 100; // Numero di simulazioni per configurazione
         const { "# Giocatori": _, ...data } = row;
         cleanTable[label] = data;
     });
+
+    window.updateTacticalSuggestions = originalUpdateTactics;
+    window.updateTurnUI = originalUpdateTurnUI;
+    window.renderGrid = originalRenderGrid;
 
     console.table(cleanTable);
 
