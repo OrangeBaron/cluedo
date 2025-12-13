@@ -29,8 +29,7 @@ const ITERATIONS = 1000;
     }
 
     // --- MOCKING ---
-    // Importante: NON sovrascriviamo calculateTacticalMoves, ci serve vera!
-    const originalUpdateTactics = window.updateTacticalSuggestions; // UI function
+    const originalUpdateTactics = window.updateTacticalSuggestions;
     const originalUpdateTurnUI = window.updateTurnUI;
     const originalRenderGrid = window.renderGrid;
     const originalAppLog = window.log;
@@ -48,11 +47,12 @@ const ITERATIONS = 1000;
     const PLAYER_COUNTS = [3, 4, 5, 6];
     const POOL_NAMES = ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"];
 
-    // --- SMART BOT LOGIC (AVVERSARI) ---
+    // --- SMART BOT LOGIC V4 ---
     class SmartBot {
         constructor(name, hand) {
             this.name = name;
             this.hand = new Set(hand);
+            // Liste di carte CANDIDATE (che non ho e non ho visto in mano ad altri)
             this.suspects = suspects.filter(c => !this.hand.has(c));
             this.weapons = weapons.filter(c => !this.hand.has(c));
             this.rooms = rooms.filter(c => !this.hand.has(c));
@@ -65,22 +65,92 @@ const ITERATIONS = 1000;
         }
 
         getGuess(currentRoom) {
-            let s, w;
-            if (this.suspects.length > 0) s = this.suspects[Math.floor(Math.random() * this.suspects.length)];
-            else s = suspects[0]; 
+            // ==================================================
+            // 1. LOGICA MOVIMENTO (Priorità: Scoperta > Strategia)
+            // ==================================================
+            let finalRoom = currentRoom;
+            
+            // Analisi raggiungibilità
+            const reachable = rooms.filter(r => {
+                if (r === currentRoom) return false;
+                const dist = (typeof ROOM_DISTANCES !== 'undefined' && ROOM_DISTANCES[currentRoom]) 
+                             ? ROOM_DISTANCES[currentRoom][r] : 999;
+                return dist <= 7; 
+            });
 
-            if (this.weapons.length > 0) w = this.weapons[Math.floor(Math.random() * this.weapons.length)];
-            else w = weapons[0];
+            // 1. Cerca stanze che sono ancora potenziali soluzioni (Ignote)
+            const potentialSolutionRooms = reachable.filter(r => this.rooms.includes(r));
+            
+            // 2. Cerca stanze mie (per usare la "Tecnica del Martello" se la stanza è risolta)
+            const myRooms = reachable.filter(r => this.hand.has(r));
 
-            return [s, w, currentRoom];
+            if (this.rooms.includes(currentRoom)) {
+                // Se sono in una stanza che potrebbe essere il delitto, RESTO QUI per verificarla.
+                finalRoom = currentRoom;
+            } else if (potentialSolutionRooms.length > 0) {
+                // Se ci sono stanze ignote vicine, CI VADO SUBITO.
+                finalRoom = potentialSolutionRooms[Math.floor(Math.random() * potentialSolutionRooms.length)];
+            } else if (myRooms.length > 0) {
+                // Se tutte le stanze vicine sono note (viste ad altri), vado in una MIA.
+                // Usando una mia stanza, costringo gli altri a rispondere su Sospettato/Arma.
+                finalRoom = myRooms[Math.floor(Math.random() * myRooms.length)];
+            } else {
+                // Fallback: muovi a caso se non c'è nulla di utile
+                if (reachable.length > 0) finalRoom = reachable[Math.floor(Math.random() * reachable.length)];
+            }
+
+            // ==================================================
+            // 2. LOGICA IPOTESI
+            // ==================================================
+            
+            let selection = { S: null, W: null };
+            
+            // Definiamo un budget limitato per il bluff (max 1 carta totale tra S e W)
+            // Il bluff serve solo a confondere, ma non deve rallentare la mia indagine.
+            let bluffBudget = (Math.random() > 0.8) ? 1 : 0; // Solo 20% di chance di fare un bluff
+            
+            // Se la stanza finale è mia, conta già come "uso di carta propria"
+            if (this.hand.has(finalRoom)) bluffBudget = 0;
+
+            ['S', 'W'].forEach(type => {
+                let candidates = (type === 'S') ? this.suspects : this.weapons;
+                let myCards = (type === 'S') ? suspects.filter(c => this.hand.has(c)) : weapons.filter(c => this.hand.has(c));
+                let chosen = null;
+
+                // CASO 1: CATEGORIA RISOLTA (So chi è stato)
+                // Strategia "Hammer": Chiedo la SOLUZIONE.
+                // Nessuno può mostrarla (è nella busta). Forzo risposte sull'altra categoria.
+                if (candidates.length === 1) {
+                    chosen = candidates[0]; 
+                }
+                // CASO 2: CATEGORIA ANCORA APERTA
+                else if (candidates.length > 1) {
+                    // Provo a usare una carta IGNOTA (Indagine)
+                    chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                    
+                    // Piccola chance di bluffare SE ho budget e carte disponibili
+                    // (Serve a non rendere ovvio che non ho quella carta)
+                    if (bluffBudget > 0 && myCards.length > 0) {
+                        chosen = myCards[Math.floor(Math.random() * myCards.length)];
+                        bluffBudget--;
+                    }
+                }
+                // CASO 3: IMPOSSIBILE (Lista vuota) - Fallback tecnico
+                else {
+                    let allPool = (type === 'S') ? suspects : weapons;
+                    chosen = allPool[Math.floor(Math.random() * allPool.length)];
+                }
+
+                selection[type] = chosen;
+            });
+
+            return [selection.S, selection.W, finalRoom];
         }
 
         checkWin(guess, solution) {
             const unheld = guess.filter(c => !this.hand.has(c));
             if (unheld.length === 3) {
-                if (guess[0] === solution[0] && guess[1] === solution[1] && guess[2] === solution[2]) {
-                    return true;
-                }
+                return (guess[0] === solution[0] && guess[1] === solution[1] && guess[2] === solution[2]);
             }
             return false;
         }
