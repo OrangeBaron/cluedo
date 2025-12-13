@@ -48,8 +48,9 @@ function initPathfinding() {
 /**
  * Genera l'ipotesi migliore per una specifica stanza data la conoscenza attuale.
  * Restituisce un oggetto strutturato con {suspect, weapon, text, type}
+ * * UPDATE: Accetta isLateGame per decidere se essere aggressivo (Indagine) o conservativo (Forzatura).
  */
-function generateHypothesisForRoom(targetRoom) {
+function generateHypothesisForRoom(targetRoom, isLateGame = false) {
     const pickRandom = (arr) => arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
     
     // Filtri carte
@@ -58,24 +59,37 @@ function generateHypothesisForRoom(targetRoom) {
     const myS = suspects.filter(c => grid[c][myName] === 2);
     const myW = weapons.filter(c => grid[c][myName] === 2);
 
-    const getBestShield = (my, other, all) => {
-        if (my.length > 0) return pickRandom(my);
-        if (other.length > 0) return pickRandom(other);
-        return pickRandom(all); 
+    /**
+     * Selettore intelligente della carta:
+     * - In EARLY GAME: Preferisce carte IGNOTE (per fare domande vere).
+     * - In LATE GAME: Preferisce carte MIE (scudi, per fare forzature).
+     */
+    const selectBestCard = (myList, unknownList, allList) => {
+        if (isLateGame) {
+            // Strategia Conservativa (Forzatura/Bluff)
+            if (myList.length > 0) return pickRandom(myList);
+            if (unknownList.length > 0) return pickRandom(unknownList);
+            return pickRandom(allList);
+        } else {
+            // Strategia Esplorativa (Indagine)
+            if (unknownList.length > 0) return pickRandom(unknownList);
+            if (myList.length > 0) return pickRandom(myList);
+            return pickRandom(allList);
+        }
     };
 
     let bestS, bestW;
 
     if (grid[targetRoom].SOL === 0) {
-        // Stanza ignota: forziamo scudi se possibile
-        bestS = getBestShield(myS, unknownS, suspects);
-        bestW = getBestShield(myW, unknownW, weapons);
+        // Stanza ignota: applichiamo la logica di fase (Esplorazione vs Scudo)
+        bestS = selectBestCard(myS, unknownS, suspects);
+        bestW = selectBestCard(myW, unknownW, weapons);
     } else {
         // Stanza nota: indagine mirata
         const countS = unknownS.length;
         const countW = unknownW.length;
         
-        // Se tutto risolto, fallback su random per evitare crash, ma type sarà "Vittoria" gestito dopo
+        // Se tutto risolto, fallback
         if (countS === 0 && countW === 0) {
             bestS = suspects[0]; 
             bestW = weapons[0];
@@ -88,12 +102,9 @@ function generateHypothesisForRoom(targetRoom) {
             
             let huntSuspect = false;
 
-            if (hasShieldS && !hasShieldW) {
-                huntSuspect = false; 
-            }
-            else if (!hasShieldS && hasShieldW) {
-                huntSuspect = true;
-            }
+            // Logica di caccia specifica
+            if (hasShieldS && !hasShieldW) huntSuspect = false; 
+            else if (!hasShieldS && hasShieldW) huntSuspect = true;
             else {
                 if (scoreS < scoreW) huntSuspect = true;
                 else if (scoreW < scoreS) huntSuspect = false;
@@ -101,16 +112,17 @@ function generateHypothesisForRoom(targetRoom) {
             }
 
             if (huntSuspect) {
-                bestS = pickRandom(unknownS) || suspects[0];
-                bestW = getBestShield(myW, unknownW, weapons);
+                bestS = (unknownS.length > 0) ? pickRandom(unknownS) : suspects[0];
+                // Per l'altro elemento (non cacciato), usiamo la logica di fase
+                bestW = selectBestCard(myW, unknownW, weapons);
             } else {
-                bestS = getBestShield(myS, unknownS, suspects);
-                bestW = pickRandom(unknownW) || weapons[0];
+                bestS = selectBestCard(myS, unknownS, suspects);
+                bestW = (unknownW.length > 0) ? pickRandom(unknownW) : weapons[0];
             }
         }
     }
 
-    // Calcolo Tipo Strategia
+    // Calcolo Tipo Strategia risultante
     const isMyS = grid[bestS][myName] === 2;
     const isMyW = grid[bestW][myName] === 2;
     const isMyR = grid[targetRoom][myName] === 2;
@@ -142,18 +154,14 @@ function generateHypothesisForRoom(targetRoom) {
 
 /**
  * Calcola i punteggi tattici per tutte le stanze basandosi sulla posizione corrente.
- * MODIFICATO: Punteggi dinamici basati sulla fase di gioco (Inizio vs Fine).
  */
 function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
 
     // 1. ANALISI FASE DI GIOCO
-    // Contiamo quante carte sono ancora totalmente ignote (SOL === 0) nel sistema
     const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
-    const totalCards = allCards.length - 3; // Carte totali in gioco (escluse le 3 della soluzione)
-    
-    // Se mancano molte carte (> 7-8), siamo in "Early Game". Se poche, "Late Game".
-    // Più basso è unknownCount, più il gioco è avanzato.
+    // Early Game: Ci sono ancora molte carte ignote (> 7). 
+    // Late Game: Siamo alle strette (<= 7).
     const isLateGame = unknownCount <= 7; 
 
     const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
@@ -165,7 +173,8 @@ function calculateTacticalMoves(currentLoc) {
         if (isGameSolved) {
             hypothesis = { suspect: null, weapon: null, text: "🏆 VAI AD ACCUSARE!", type: "Vittoria" };
         } else {
-            hypothesis = generateHypothesisForRoom(room);
+            // UPDATE: Passiamo isLateGame al generatore
+            hypothesis = generateHypothesisForRoom(room, isLateGame);
         }
         
         // Analisi Posizione e Costi
@@ -179,7 +188,7 @@ function calculateTacticalMoves(currentLoc) {
         const isForzatura = hypothesis.type && hypothesis.type.includes("Forzatura");
         const isIndagine = hypothesis.type && hypothesis.type.includes("Indagine");
         
-        // --- 2. PUNTEGGIO DINAMICO (CORE MODIFICATION) ---
+        // --- 2. PUNTEGGIO DINAMICO ---
         
         // Bonus base per muoversi verso stanze utili
         if (solStatus === 2) { 
@@ -187,8 +196,6 @@ function calculateTacticalMoves(currentLoc) {
         } else if (solStatus === 0) { 
             score += 200; reasons.push("🔍 Ignota"); 
         } else if (grid[room][myName] === 2) { 
-            // In Late Game, andare in una stanza mia per fare Forzatura è ottimo.
-            // In Early Game, è tempo perso.
             if (isLateGame) { score += 150; reasons.push("🛡️ Base Tattica"); }
             else { score -= 50; reasons.push("⚠️ Stanza nota"); }
         } else { 
@@ -203,6 +210,7 @@ function calculateTacticalMoves(currentLoc) {
             const forceBonus = isLateGame ? 1000 : 200; 
             score += forceBonus;
             if(isLateGame) reasons.push("🎯 Cecchino");
+            else reasons.push("⚠️ Forzatura prematura");
         } else if (isIndagine) {
             // L'indagine vale MOLTO all'inizio, MENO alla fine
             const investBonus = isLateGame ? 300 : 900;
@@ -210,7 +218,7 @@ function calculateTacticalMoves(currentLoc) {
             if(!isLateGame) reasons.push("🌐 Rete ampia");
         }
 
-        // 3. PUNTEGGIO MOVIMENTO (Invariato)
+        // 3. PUNTEGGIO MOVIMENTO
         const usefulMove = isForzatura || isIndagine; 
 
         if (isCurrent) {
