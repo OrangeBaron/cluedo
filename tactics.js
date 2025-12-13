@@ -15,7 +15,6 @@ let TURN_MATRIX = {};
 
 // --- PATHFINDING INIT ---
 function initPathfinding() {
-    // 1. Inizializzazione costi
     rooms.forEach(r1 => {
         TURN_MATRIX[r1] = {};
         rooms.forEach(r2 => {
@@ -32,7 +31,6 @@ function initPathfinding() {
         });
     });
 
-    // 2. Floyd-Warshall (Logica invariata)
     rooms.forEach(k => {
         rooms.forEach(i => {
             rooms.forEach(j => {
@@ -45,8 +43,12 @@ function initPathfinding() {
     });
 }
 
-// --- TACTICAL ENGINE ---
+// --- TACTICAL ENGINE (PURE LOGIC) ---
 
+/**
+ * Genera l'ipotesi migliore per una specifica stanza data la conoscenza attuale.
+ * Restituisce un oggetto strutturato con {suspect, weapon, text, type}
+ */
 function generateHypothesisForRoom(targetRoom) {
     const pickRandom = (arr) => arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
     
@@ -64,57 +66,51 @@ function generateHypothesisForRoom(targetRoom) {
 
     let bestS, bestW;
 
-    // --- SELEZIONE CARTE (Logica invariata, ma senza assegnare strategyType qui) ---
     if (grid[targetRoom].SOL === 0) {
-        // La stanza è ignota: dobbiamo forzare per capire se è lei
+        // Stanza ignota: forziamo scudi se possibile
         bestS = getBestShield(myS, unknownS, suspects);
         bestW = getBestShield(myW, unknownW, weapons);
     } else {
-        // La stanza è nota (o mia o di altri): indaghiamo su Sospettato/Arma
+        // Stanza nota: indagine mirata
         const countS = unknownS.length;
         const countW = unknownW.length;
-        const scoreS = countS === 0 ? 999 : countS;
-        const scoreW = countW === 0 ? 999 : countW;
-
-        if (scoreS === 999 && scoreW === 999) return { text: "Vittoria!", type: "Risolto" };
-
-        // --- CORREZIONE LOGICA ---
-        // Verifichiamo se abbiamo degli "scudi" (carte nostre) da usare come pivot
-        const hasShieldS = myS.length > 0;
-        const hasShieldW = myW.length > 0;
         
-        let huntSuspect = false;
-
-        // 1. PRIORITÀ AGLI SCUDI:
-        // Se ho uno scudo Sospettati ma NON Armi -> Caccia all'Arma (huntSuspect = false)
-        if (hasShieldS && !hasShieldW) {
-            huntSuspect = false; 
-        }
-        // Se ho uno scudo Armi ma NON Sospettati -> Caccia al Sospettato (huntSuspect = true)
-        else if (!hasShieldS && hasShieldW) {
-            huntSuspect = true;
-        }
-        // 2. FALLBACK (Ho scudi per entrambi o per nessuno):
-        // Attacco la categoria con meno incognite per chiuderla prima
-        else {
-            if (scoreS < scoreW) huntSuspect = true;
-            else if (scoreW < scoreS) huntSuspect = false;
-            else huntSuspect = Math.random() < 0.5;
-        }
-
-        if (huntSuspect) {
-            // Cerco il Sospettato: uso un'Arma sicura (scudo) se ce l'ho
-            bestS = pickRandom(unknownS);
-            bestW = getBestShield(myW, unknownW, weapons);
+        // Se tutto risolto, fallback su random per evitare crash, ma type sarà "Vittoria" gestito dopo
+        if (countS === 0 && countW === 0) {
+            bestS = suspects[0]; 
+            bestW = weapons[0];
         } else {
-            // Cerco l'Arma: uso un Sospettato sicuro (scudo) se ce l'ho
-            bestS = getBestShield(myS, unknownS, suspects);
-            bestW = pickRandom(unknownW);
+            const scoreS = countS === 0 ? 999 : countS;
+            const scoreW = countW === 0 ? 999 : countW;
+
+            const hasShieldS = myS.length > 0;
+            const hasShieldW = myW.length > 0;
+            
+            let huntSuspect = false;
+
+            if (hasShieldS && !hasShieldW) {
+                huntSuspect = false; 
+            }
+            else if (!hasShieldS && hasShieldW) {
+                huntSuspect = true;
+            }
+            else {
+                if (scoreS < scoreW) huntSuspect = true;
+                else if (scoreW < scoreS) huntSuspect = false;
+                else huntSuspect = Math.random() < 0.5;
+            }
+
+            if (huntSuspect) {
+                bestS = pickRandom(unknownS) || suspects[0];
+                bestW = getBestShield(myW, unknownW, weapons);
+            } else {
+                bestS = getBestShield(myS, unknownS, suspects);
+                bestW = pickRandom(unknownW) || weapons[0];
+            }
         }
     }
 
-    // --- CALCOLO DINAMICO DEL NOME STRATEGIA ---
-    // Verifichiamo quante carte della triade sono già in mano nostra
+    // Calcolo Tipo Strategia
     const isMyS = grid[bestS][myName] === 2;
     const isMyW = grid[bestW][myName] === 2;
     const isMyR = grid[targetRoom][myName] === 2;
@@ -123,40 +119,45 @@ function generateHypothesisForRoom(targetRoom) {
     let strategyType = "";
 
     if (myCount === 2) {
-        // Se ho 2 carte su 3, sto "Forzando" la terza
         if (!isMyS) strategyType = "Forzatura Sospettato";
         else if (!isMyW) strategyType = "Forzatura Arma";
         else strategyType = "Forzatura Stanza";
     } else if (myCount === 3) {
-        strategyType = "Bluff Totale"; // Caso raro, ma possibile
+        strategyType = "Bluff Totale";
     } else {
-        // Se ho 0 o 1 carta, sto indagando sulle rimanenti
         let targets = [];
         if (!isMyS) targets.push("Sospettato");
         if (!isMyW) targets.push("Arma");
-        if (!isMyR) targets.push("Stanza"); // Succede se grid[targetRoom].SOL === 0
-        
+        if (!isMyR) targets.push("Stanza");
         strategyType = "Indagine " + targets.join(", ");
     }
 
-    return { text: `<b>${bestS}</b> + <b>${bestW}</b>`, type: strategyType };
+    return { 
+        suspect: bestS, 
+        weapon: bestW, 
+        text: `<b>${bestS}</b> + <b>${bestW}</b>`, 
+        type: strategyType 
+    };
 }
 
-function updateTacticalSuggestions() {
-    const currentLoc = document.getElementById('current-position').value;
-    const container = document.getElementById('tactical-suggestions');
-    
-    if (!currentLoc || !ROOM_DISTANCES[currentLoc]) {
-        container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>';
-        return;
-    }
+/**
+ * Calcola i punteggi tattici per tutte le stanze basandosi sulla posizione corrente.
+ * Restituisce un array ordinato di mosse.
+ */
+function calculateTacticalMoves(currentLoc) {
+    if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
 
     const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
 
-let suggestions = rooms.map(room => {
+    let moves = rooms.map(room => {
         let score = 0, reasons = [];
         
-        let hypothesis = isGameSolved ? { text: "🏆 VAI AD ACCUSARE!", type: "Vittoria" } : generateHypothesisForRoom(room);
+        let hypothesis;
+        if (isGameSolved) {
+            hypothesis = { suspect: null, weapon: null, text: "🏆 VAI AD ACCUSARE!", type: "Vittoria" };
+        } else {
+            hypothesis = generateHypothesisForRoom(room);
+        }
         
         // Analisi Posizione e Costi
         const isCurrent = room === currentLoc;
@@ -166,13 +167,11 @@ let suggestions = rooms.map(room => {
         const diceReach = !isCurrent && !isSecret && (dist <= 7);
         const solStatus = grid[room].SOL; 
 
-        // --- DEFINIZIONE TIPI DI MOSSA ---
         const isForzatura = hypothesis.type && hypothesis.type.includes("Forzatura");
         const isIndagine = hypothesis.type && hypothesis.type.includes("Indagine");
-        // usefulMove serve al punto 3 per capire se vale la pena restare
         const usefulMove = isForzatura || isIndagine; 
 
-        // 1. PUNTEGGIO STATO STANZA (Base)
+        // 1. PUNTEGGIO STATO STANZA
         if (solStatus === 2) { 
             score += 5000; reasons.push("🏆 DELITTO"); 
         } else if (solStatus === 0) { 
@@ -183,23 +182,15 @@ let suggestions = rooms.map(room => {
             score -= 50; reasons.push("❌ Innocente"); 
         }
 
-        // 2. PUNTEGGIO VALORE STRATEGICO (Logica Aggiornata)
-        if (solStatus === 2) {
-            score += 300;
-        } else if (isForzatura) {
-            score += 800; // 🚀 PRIORITÀ ASSOLUTA: Chiudiamo il cerchio
-        } else if (isIndagine) {
-            score += 300; // Priorità standard
-        }
+        // 2. PUNTEGGIO STRATEGICO
+        if (solStatus === 2) score += 300;
+        else if (isForzatura) score += 800;
+        else if (isIndagine) score += 300;
 
         // 3. PUNTEGGIO MOVIMENTO
         if (isCurrent) {
-            // Se sono qui e c'è qualcosa da fare (Forzatura o Indagine), resto.
-            if (usefulMove || solStatus === 2) {
-                score += 1000; reasons.push("✅ Resta qui");
-            } else { 
-                score -= 200; reasons.push("💨 Muoviti"); 
-            }
+            if (usefulMove || solStatus === 2) { score += 1000; reasons.push("✅ Resta qui"); }
+            else { score -= 200; reasons.push("💨 Muoviti"); }
         } else if (isSecret) {
             score += 900; reasons.push("🚇 Passaggio");
         } else if (diceReach) {
@@ -208,11 +199,30 @@ let suggestions = rooms.map(room => {
             score -= (trueTurns * 50);
         }
 
-        return { room, score, turns: trueTurns, dist, reasons, hypothesis, isCurrent, isSecret, diceReach, isSol: solStatus === 2 };
+        return { 
+            room, score, turns: trueTurns, dist, reasons, hypothesis, 
+            isCurrent, isSecret, diceReach, isSol: solStatus === 2 
+        };
     });
 
-    suggestions.sort((a, b) => b.score - a.score);
-    const top3 = suggestions.filter(s => s.score > -500).slice(0, 3);
+    // Ordina decrescente
+    return moves.sort((a, b) => b.score - a.score);
+}
+
+// --- UI HANDLER ---
+
+function updateTacticalSuggestions() {
+    const currentLoc = document.getElementById('current-position').value;
+    const container = document.getElementById('tactical-suggestions');
+    
+    if (!currentLoc) {
+        container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>';
+        return;
+    }
+
+    // Usa la funzione pura per i calcoli
+    const rankedMoves = calculateTacticalMoves(currentLoc);
+    const top3 = rankedMoves.filter(s => s.score > -500).slice(0, 3);
 
     let html = "";
     if (top3.length === 0) html = "<div class='suggestions-placeholder'>Nessuna mossa utile.</div>";
