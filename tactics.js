@@ -142,10 +142,19 @@ function generateHypothesisForRoom(targetRoom) {
 
 /**
  * Calcola i punteggi tattici per tutte le stanze basandosi sulla posizione corrente.
- * Restituisce un array ordinato di mosse.
+ * MODIFICATO: Punteggi dinamici basati sulla fase di gioco (Inizio vs Fine).
  */
 function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
+
+    // 1. ANALISI FASE DI GIOCO
+    // Contiamo quante carte sono ancora totalmente ignote (SOL === 0) nel sistema
+    const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
+    const totalCards = allCards.length - 3; // Carte totali in gioco (escluse le 3 della soluzione)
+    
+    // Se mancano molte carte (> 7-8), siamo in "Early Game". Se poche, "Late Game".
+    // Più basso è unknownCount, più il gioco è avanzato.
+    const isLateGame = unknownCount <= 7; 
 
     const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
 
@@ -169,25 +178,41 @@ function calculateTacticalMoves(currentLoc) {
 
         const isForzatura = hypothesis.type && hypothesis.type.includes("Forzatura");
         const isIndagine = hypothesis.type && hypothesis.type.includes("Indagine");
-        const usefulMove = isForzatura || isIndagine; 
-
-        // 1. PUNTEGGIO STATO STANZA
+        
+        // --- 2. PUNTEGGIO DINAMICO (CORE MODIFICATION) ---
+        
+        // Bonus base per muoversi verso stanze utili
         if (solStatus === 2) { 
             score += 5000; reasons.push("🏆 DELITTO"); 
         } else if (solStatus === 0) { 
             score += 200; reasons.push("🔍 Ignota"); 
         } else if (grid[room][myName] === 2) { 
-            score += 50; reasons.push("🛡️ Base"); 
+            // In Late Game, andare in una stanza mia per fare Forzatura è ottimo.
+            // In Early Game, è tempo perso.
+            if (isLateGame) { score += 150; reasons.push("🛡️ Base Tattica"); }
+            else { score -= 50; reasons.push("⚠️ Stanza nota"); }
         } else { 
             score -= 50; reasons.push("❌ Innocente"); 
         }
 
-        // 2. PUNTEGGIO STRATEGICO
-        if (solStatus === 2) score += 300;
-        else if (isForzatura) score += 800;
-        else if (isIndagine) score += 300;
+        // Punteggio Strategico Variabile
+        if (solStatus === 2) {
+            score += 300;
+        } else if (isForzatura) {
+            // La forzatura vale MOLTO alla fine, POCO all'inizio
+            const forceBonus = isLateGame ? 1000 : 200; 
+            score += forceBonus;
+            if(isLateGame) reasons.push("🎯 Cecchino");
+        } else if (isIndagine) {
+            // L'indagine vale MOLTO all'inizio, MENO alla fine
+            const investBonus = isLateGame ? 300 : 900;
+            score += investBonus;
+            if(!isLateGame) reasons.push("🌐 Rete ampia");
+        }
 
-        // 3. PUNTEGGIO MOVIMENTO
+        // 3. PUNTEGGIO MOVIMENTO (Invariato)
+        const usefulMove = isForzatura || isIndagine; 
+
         if (isCurrent) {
             if (usefulMove || solStatus === 2) { score += 1000; reasons.push("✅ Resta qui"); }
             else { score -= 200; reasons.push("💨 Muoviti"); }
