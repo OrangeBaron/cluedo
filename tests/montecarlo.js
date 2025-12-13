@@ -29,21 +29,26 @@ const ITERATIONS = 1000;
     }
 
     // --- MOCKING ---
-    const originalUpdateTactics = window.updateTacticalSuggestions;
+    // Importante: NON sovrascriviamo calculateTacticalMoves, ci serve vera!
+    const originalUpdateTactics = window.updateTacticalSuggestions; // UI function
     const originalUpdateTurnUI = window.updateTurnUI;
     const originalRenderGrid = window.renderGrid;
     const originalAppLog = window.log;
     
+    // Disabilitiamo solo le funzioni che toccano il DOM
     window.updateTacticalSuggestions = () => {};
     window.updateTurnUI = () => {};
     window.renderGrid = () => {};
     window.log = () => {}; 
 
+    // Assicuriamoci che il pathfinding sia inizializzato
+    if(typeof initPathfinding === 'function') initPathfinding();
+
     // --- SETUP DATI ---
     const PLAYER_COUNTS = [3, 4, 5, 6];
     const POOL_NAMES = ["Alice", "Bob", "Charlie", "David", "Eve", "Frank"];
 
-    // --- SMART BOT LOGIC ---
+    // --- SMART BOT LOGIC (AVVERSARI) ---
     class SmartBot {
         constructor(name, hand) {
             this.name = name;
@@ -137,23 +142,34 @@ const ITERATIONS = 1000;
         while ((turnProSolved === null || turnOppSolved === null) && turnCount < MAX_TURNS) {
             turnCount++;
             const currentPlayer = players[currentTurnIndex];
-            const currentRoom = rooms[Math.floor(Math.random() * rooms.length)];
             
+            // Simula posizione iniziale casuale (dove inizia il turno)
+            const startRoom = rooms[Math.floor(Math.random() * rooms.length)];
             let guess;
             
-            // TURN: ME
+            // --- TURN: ME (SOLVER PRO TACTICAL) ---
             if (currentPlayer === myName) {
-                const unknownSuspects = suspects.filter(c => grid[c].SOL === 0);
-                const unknownWeapons = weapons.filter(c => grid[c].SOL === 0);
-                let s = unknownSuspects.length > 0 ? unknownSuspects[0] : suspects.find(c => grid[c].SOL === 2);
-                let w = unknownWeapons.length > 0 ? unknownWeapons[0] : weapons.find(c => grid[c].SOL === 2);
-                if(!s) s = suspects[0];
-                if(!w) w = weapons[0];
-                guess = [s, w, currentRoom];
+                // 1. Chiedi al motore tattico la mossa migliore partendo da startRoom
+                const rankedMoves = calculateTacticalMoves(startRoom);
+                const bestMove = rankedMoves[0]; // Prendi la migliore
+
+                // 2. "Muovi" nella stanza suggerita (potrebbe essere la stessa)
+                const finalRoom = bestMove.room;
+                
+                // 3. Formula l'ipotesi suggerita dal motore tattico
+                // (Se il gioco è risolto, il motore tattico potrebbe dare null, gestiamo il fallback)
+                let s = bestMove.hypothesis.suspect;
+                let w = bestMove.hypothesis.weapon;
+                
+                if (!s) s = suspects.find(c => grid[c].SOL === 2) || suspects[0];
+                if (!w) w = weapons.find(c => grid[c].SOL === 2) || weapons[0];
+
+                guess = [s, w, finalRoom];
             } 
-            // TURN: BOT
+            // --- TURN: BOT (AVVERSARIO) ---
             else {
-                guess = bots[currentPlayer].getGuess(currentRoom);
+                // Il bot sceglie a caso una stanza o resta dove è (semplificato)
+                guess = bots[currentPlayer].getGuess(startRoom);
             }
 
             // RISPOSTA
@@ -208,7 +224,7 @@ const ITERATIONS = 1000;
                 const foundW = weapons.find(c => grid[c].SOL === 2);
                 const foundR = rooms.find(c => grid[c].SOL === 2);
                 if (foundS && foundW && foundR) {
-                     // Check reale per evitare falsi positivi da deduzioni errate (simulazione bug solver)
+                     // Check reale per evitare falsi positivi
                      if (foundS === solution[0] && foundW === solution[1] && foundR === solution[2]) {
                          turnProSolved = turnCount;
                      }
@@ -227,7 +243,7 @@ const ITERATIONS = 1000;
     // --- RUNNER ---
     console.clear();
     logPermanent(`🚀 CLUEDO MONTE CARLO SIMULATION (${ITERATIONS} iterazioni)`);
-    logPermanent(`------------------------------------------------`);
+    logPermanent(`-----------------------------------------------------------`);
     
     const UPDATE_STEP = Math.max(1, Math.floor(ITERATIONS / 10));
 
@@ -265,7 +281,7 @@ const ITERATIONS = 1000;
         logPermanent(`   ✅ Win Rate: ${winRate}% | Pro: ~${avgPro} turni | Avv: ~${avgOpp} turni`);
     }
 
-    logPermanent(`\n🏁 Simulazione completata.`);
+    logPermanent(`\n🏁 Simulazione Tattica completata.`);
     
     // Restore
     window.updateTacticalSuggestions = originalUpdateTactics;
