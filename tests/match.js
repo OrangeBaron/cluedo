@@ -222,6 +222,7 @@
     let gameOver = false;
     let turnCount = 0;
     let currentPlayerIdx = 0;
+    let solverHasFoundSolution = false;
 
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
@@ -349,11 +350,6 @@
             }
 
             if (accusation) {
-                // Verifica finale stanza (Regola Cluedo: devi essere nella stanza che accusi)
-                // Per il simulatore, concediamo l'accusa anche se il bot è arrivato in una stanza diversa
-                // pur di chiudere il match, o forziamo la coerenza. 
-                // Forziamo coerenza leggera: Accusa valida.
-                
                 storyLog("🏆", `ACCUSA DI ${currentPlayer.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "font-size: 1.2em; font-weight: bold; color: gold; border: 2px solid gold; padding: 10px;");
                 
                 if (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]) {
@@ -361,7 +357,7 @@
                     gameOver = true;
                     break;
                 } else {
-                    storyLog("💀", `ACCUSA ERRATA! (Impossibile con logica infallibile?)`, "color: red;");
+                    storyLog("💀", `ACCUSA ERRATA!`, "color: red;");
                     currentPlayer.isEliminated = true;
                 }
             }
@@ -379,7 +375,7 @@
                 const h = currentPlayer.generateHypothesis(currentPlayer.currentLocation);
                 hypothesis.s = h.s;
                 hypothesis.w = h.w;
-                storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, "color: #d1d5db;");
+                storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, "color: #93c5fd;");
             }
 
             if (tokenPositions[hypothesis.s] !== currentPlayer.currentLocation) {
@@ -398,7 +394,7 @@
                 if (matches.length > 0) {
                     responder = checker;
                     cardShown = matches[0]; 
-                    storyLog("✋", `${checker.name} mostra una carta a ${currentPlayer.name}`, "color: #fca5a5; font-weight: bold;");
+                    storyLog("✋", `${responder.name} mostra ${cardShown} a ${currentPlayer.name}`, "color: #fca5a5; font-weight: bold;");
                     break;
                 } else {
                     storyLog("❌", `${checker.name} passa`, "color: #4b5563; font-size: 0.9em;");
@@ -410,15 +406,11 @@
             }
 
             if (responder) {
-                // A. HERO vede
+                // HERO vede
                 if (currentPlayer.name === HERO_NAME) {
                     setFact(cardShown, responder.name, 2); 
                     storyLog("👀", `Hai visto: ${cardShown}`, "color: #bef264");
                 } 
-                // B. BOT vede -> Elimina dalla memoria dei colpevoli
-                else if (currentPlayer.name !== HERO_NAME) {
-                    currentPlayer.eliminate(cardShown);
-                }
 
                 // Vincoli per Hero
                 if (responder.name !== HERO_NAME && currentPlayer.name !== HERO_NAME) {
@@ -439,14 +431,26 @@
                     currentPlayer.analyzeNoResponse({s: hypothesis.s, w: hypothesis.w, r: hypothesis.r});
                     
                     if (currentPlayer.hasFullSolution()) {
-                        storyLog("💡", `${currentPlayer.name} ha capito tutto! (Soluzione Confermata)`, "color: #fcd34d; font-weight:bold;");
+                        storyLog("💡", `${currentPlayer.name} ha capito tutto! (Soluzione Confermata)`, "color: #fcd34d;");
                     } else {
-                        storyLog("🤔", `${currentPlayer.name} ha dedotto una parte della soluzione...`, "color: #fcd34d; font-style: italic;");
+                        storyLog("🤔", `${currentPlayer.name} ha dedotto una parte della soluzione...`, "color: #fcd34d;");
                     }
                 }
             }
 
             try { runSolver(); } catch(e) {}
+
+            // --- Check se il Solver (Tu/Hero) ha la soluzione completa ---
+            if (!solverHasFoundSolution) {
+                const solS = suspects.find(c => grid[c].SOL === 2);
+                const solW = weapons.find(c => grid[c].SOL === 2);
+                const solR = rooms.find(c => grid[c].SOL === 2);
+                
+                if (solS && solW && solR) {
+                    solverHasFoundSolution = true;
+                    storyLog("✅", `IL SOLVER HA RISOLTO: ${solS}, ${solW}, ${solR}`, "background: #fff; color: #000; font-weight: bold; border: 2px solid #10b981; padding: 4px;");
+                }
+            }
         }
 
         currentPlayerIdx = (currentPlayerIdx + 1) % players.length;
