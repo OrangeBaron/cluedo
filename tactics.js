@@ -233,9 +233,10 @@ function calculateTacticalMoves(currentLoc) {
 
         // --- 3. COSTO MOVIMENTO (MODIFICATO) ---
         if (isCurrent) {
-            // Se la stanza è bruciata (di un nemico), NON applicare il bonus di restare!
+            // Se la stanza è bruciata (di un nemico), è comunque meglio restare che finire in corridoio.
+            // Diamo un piccolo bonus positivo invece di una penalità mortale.
             if (ownedByEnemy) {
-                score -= 2000; reasons.push("💨 SCAPPA!"); // Forza l'uscita
+                score += 50; reasons.push("⚠️ Bruciata"); // Bonus basso ma positivo (meglio di niente)
             } else if (solStatus === 0 || isMyRoom || solStatus === 2) {
                 score += 1200; reasons.push("✅ Resta"); 
             } else {
