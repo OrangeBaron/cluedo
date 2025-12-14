@@ -110,8 +110,15 @@
             player.currentLocation = newRoom;
             player.inRoom = true;
             player.squaresLeft = 0;
-            if (isForcedDrag) player.wasDragged = true; 
-            if (player.targetLocation && newRoom !== player.targetLocation) {
+            
+            if (isForcedDrag) {
+                player.wasDragged = true;
+                // FIX: Se trascinato, dimentica il vecchio target! Ora sei qui.
+                player.targetLocation = null; 
+            }
+
+            // Mantiene il vecchio target solo se NON è un drag forzato (es. movimento normale)
+            if (!isForcedDrag && player.targetLocation && newRoom !== player.targetLocation) {
                  player.squaresLeft = getDistance(newRoom, player.targetLocation);
                  player.inRoom = false; 
             }
@@ -161,9 +168,19 @@
                 mockElements['current-position'].value = currentPlayer.currentLocation; 
                 let tacticalMoves = calculateTacticalMoves(currentPlayer.currentLocation);
                 
+                // Se non poteva restare, rimuoviamo l'opzione "Resta" dalla lista grezza
                 if (!canStay) tacticalMoves = tacticalMoves.filter(m => m.room !== currentPlayer.currentLocation);
 
-                const bestMove = tacticalMoves.length > 0 ? tacticalMoves[0] : null;
+                // --- FIX HERO: Scegli la migliore TRA QUELLE RAGGIUNGIBILI ---
+                // Filtriamo le mosse che possiamo permetterci con il dado attuale
+                const reachableMoves = tacticalMoves.filter(m => {
+                    return m.isCurrent || m.isSecret || m.dist <= dice;
+                });
+
+                // Se c'è una mossa raggiungibile (es. Restare o stanza vicina), prendiamo la migliore di quelle.
+                // Altrimenti (caso raro), puntiamo alla migliore in assoluto per avvicinarci.
+                const bestMove = reachableMoves.length > 0 ? reachableMoves[0] : (tacticalMoves[0] || null);
+
                 if (bestMove) {
                     if (bestMove.hypothesis && bestMove.hypothesis.type === "Vittoria") {
                          currentPlayer.targetLocation = bestMove.room;
@@ -174,48 +191,53 @@
                         currentPlayer.squaresLeft = 0;
                         updateTokenLocation(currentPlayer.character, currentPlayer.targetLocation);
                         storyLog("🚇", `Usa passaggio segreto -> ${currentPlayer.targetLocation}`, "color: #9ca3af;");
+                    } else if (bestMove.isCurrent) {
+                        currentPlayer.squaresLeft = 0;
+                        storyLog("⚓", "Sfrutta il trascinamento: Rimane nella stanza.", "color: #d1d5db;");
                     } else {
                         if (currentPlayer.targetLocation === currentPlayer.currentLocation) currentPlayer.squaresLeft = 0;
                         else currentPlayer.squaresLeft = getDistance(currentPlayer.currentLocation, currentPlayer.targetLocation);
                     }
                 }
             } else {
-                // BOT
-                const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
-                let options = Object.keys(dists);
-                if (!canStay) options = options.filter(r => r !== currentPlayer.currentLocation);
-
-                const dest = options[Math.floor(Math.random() * options.length)];
-                
-                const isSecret = (dists[dest] === 0 || (dists[dest] === 1 && dest !== currentPlayer.currentLocation));
-                if (isSecret && Math.random() > 0.3) { 
-                    currentPlayer.targetLocation = dest;
+                // --- BOT IMPROVED MOVEMENT ---
+                // FIX: Se trascinato, RESTA SEMPRE (Sfrutta il turno gratis)
+                if (canStay) {
+                    currentPlayer.targetLocation = currentPlayer.currentLocation;
                     currentPlayer.squaresLeft = 0;
-                    updateTokenLocation(currentPlayer.character, dest);
-                    storyLog("🚇", `Usa passaggio segreto -> ${currentPlayer.targetLocation}`, "color: #9ca3af;");
+                    storyLog("⚓", "Bot sfruttatore: Rimane nella stanza.", "color: #d1d5db;");
                 } else {
+                    const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
+                    // Stanze diverse dalla corrente
+                    let potentialMoves = Object.keys(dists).filter(r => r !== currentPlayer.currentLocation);
+                    
+                    // FIX: Filtra stanze effettivamente raggiungibili col dado
+                    const reachableRooms = potentialMoves.filter(r => {
+                        const d = dists[r];
+                        return d === 0 || d <= dice; // Passaggio segreto (0) o distanza <= dadi
+                    });
+
+                    let dest = null;
+                    if (reachableRooms.length > 0) {
+                        // Se posso entrare da qualche parte, lo faccio!
+                        dest = reachableRooms[Math.floor(Math.random() * reachableRooms.length)];
+                        currentPlayer.squaresLeft = 0; // Entra subito
+                        
+                        // LOGGING CORRETTO
+                        if (dists[dest] === 0) {
+                            storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
+                        } else {
+                            storyLog("👣", `Raggiunge: ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
+                        }
+                    } else {
+                        // Se nulla è raggiungibile, muovi verso una a caso
+                        dest = potentialMoves[Math.floor(Math.random() * potentialMoves.length)];
+                        currentPlayer.squaresLeft = dists[dest];
+                    }
                     currentPlayer.targetLocation = dest;
-                    if (dest === currentPlayer.currentLocation) currentPlayer.squaresLeft = 0;
-                    else currentPlayer.squaresLeft = dists[dest];
+                    updateTokenLocation(currentPlayer.character, currentPlayer.targetLocation);
                 }
             }
-        }
-
-        if (currentPlayer.squaresLeft > 0) {
-            currentPlayer.squaresLeft -= dice;
-            if (currentPlayer.squaresLeft <= 0) {
-                updateTokenLocation(currentPlayer.character, currentPlayer.targetLocation);
-                currentPlayer.inRoom = true;
-                // LOG ARRIVO (FIXATO)
-                storyLog("👣", `Raggiunge: ${currentPlayer.targetLocation} (Dadi: ${dice})`, "color: #d1d5db;");
-            } else {
-                currentPlayer.inRoom = false;
-                currentPlayer.currentLocation = "Corridoio";
-                // LOG FALLIMENTO (FIXATO)
-                storyLog("🚫", `Resta in Corridoio (Dadi: ${dice}, mancano ${currentPlayer.squaresLeft})`, "color: #6b7280; font-size: 0.9em;");
-            }
-        } else if (currentPlayer.inRoom && currentPlayer.currentLocation === currentPlayer.targetLocation) {
-             storyLog("⚓", "Rimane nella stanza.", "color: #6b7280;");
         }
 
         // --- B. AZIONE ---
