@@ -203,6 +203,12 @@ function calculateTacticalMoves(currentLoc) {
         const diceReach = !isCurrent && !isSecret && (dist <= 10); 
         const solStatus = grid[room].SOL; 
         const isMyRoom = grid[room][myName] === 2;
+        
+        // NUOVO: Verifica se la stanza è posseduta da un avversario (Bruciata)
+        let ownedByEnemy = false;
+        players.forEach(p => {
+             if (p !== myName && grid[room][p] === 2) ownedByEnemy = true;
+        });
 
         // --- 1. VALORE BASE ---
         if (solStatus === 2) { 
@@ -211,6 +217,8 @@ function calculateTacticalMoves(currentLoc) {
             score += 200; reasons.push("🔍 Ignota"); 
         } else if (isMyRoom) { 
             score += 100; reasons.push("🛡️ Base"); 
+        } else if (ownedByEnemy) { 
+            score -= 1000; reasons.push("💩 Bruciata"); // Penalità massiccia
         } else { 
             score -= 50; reasons.push("❌ Innocente"); 
         }
@@ -223,44 +231,42 @@ function calculateTacticalMoves(currentLoc) {
             score += 150; reasons.push("🔥 Aggro");
         }
 
-        // --- 3. COSTO MOVIMENTO (LOGICA "HUMAN-SAFE") ---
+        // --- 3. COSTO MOVIMENTO (MODIFICATO) ---
         if (isCurrent) {
-            if (solStatus === 0 || isMyRoom || solStatus === 2) {
-                score += 1200; reasons.push("✅ Resta"); // Molto alto per evitare rischi inutili
+            // Se la stanza è bruciata (di un nemico), NON applicare il bonus di restare!
+            if (ownedByEnemy) {
+                score -= 2000; reasons.push("💨 SCAPPA!"); // Forza l'uscita
+            } else if (solStatus === 0 || isMyRoom || solStatus === 2) {
+                score += 1200; reasons.push("✅ Resta"); 
             } else {
                 score -= 200; reasons.push("💨 Via!");
             }
         } else if (isSecret) {
-            score += 900; reasons.push("🚇 Segreto"); // Bonus enorme (movimento sicuro)
+            score += 900; reasons.push("🚇 Segreto"); 
         } else {
-            // Analisi Rischio Dadi
+            // Analisi Rischio Dadi standard
             if (dist <= 7) {
-                // Distanza media (statisticamente probabile)
                 score -= (trueTurns * 80); 
                 reasons.push("🎲 Facile");
             } else if (dist <= 9) {
-                // ZONA PERICOLO: Serve un tiro sopra la media (8 o 9).
-                // Penalità severa per scoraggiare l'azzardo.
                 score -= 300; 
                 reasons.push("⚠️ Rischio");
             } else {
-                // Impossibile in un turno (o quasi)
                 score -= (trueTurns * 100); 
             }
         }
 
         // --- 4. BONUS DENSITÀ STATISTICA ---
         if (!isGameSolved) {
-            // Quanto è "succosa" questa ipotesi statisticamente?
             const dSuspect = getCardDensity(hypothesis.suspect);
             const dWeapon = getCardDensity(hypothesis.weapon);
             const dRoom = getCardDensity(room);
 
-            // Moltiplicatore 20: Aggressivo ma bilanciato dalla penalità di movimento
-            const totalDensity = (dSuspect + dWeapon + dRoom) * 20;
+            // Riduciamo l'impatto statistico se la stanza è bruciata
+            let multiplier = ownedByEnemy ? 5 : 20; 
+            const totalDensity = (dSuspect + dWeapon + dRoom) * multiplier;
             
             if (totalDensity > 0) {
-                // Cap a 400 per evitare che la statistica rompa la logica di gioco base
                 const finalDensity = Math.min(totalDensity, 400);
                 score += finalDensity;
                 reasons.push(`📊 Stat:${finalDensity}`);
