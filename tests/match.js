@@ -230,6 +230,7 @@
     console.log(`%c🎲 Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
 
     let solverHasFoundSolution = false;
+    let foundParts = { s: false, w: false, r: false };
 
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
@@ -350,7 +351,11 @@
                 storyLog("🏆", `ACCUSA DI ${currentPlayer.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "font-size: 1.2em; font-weight: bold; color: gold; border: 2px solid gold; padding: 10px;");
                 
                 if (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]) {
-                    storyLog("🎉", `VITTORIA! ${currentPlayer.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; padding: 5px;");
+                    if (currentPlayer.name === HERO_NAME) {
+                        storyLog("🎉", `VITTORIA! ${currentPlayer.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; padding: 5px;");
+                    } else {
+                        storyLog("💥", `SCONFITTA! ${currentPlayer.name} ha risolto il caso in ${turnCount} turni.`, "background: red; color: white; padding: 5px;");
+                    }
                     gameOver = true;
                     break;
                 } else {
@@ -433,15 +438,33 @@
 
             try { runSolver(); } catch(e) {}
 
-            if (!solverHasFoundSolution) {
-                const solS = suspects.find(c => grid[c].SOL === 2);
-                const solW = weapons.find(c => grid[c].SOL === 2);
-                const solR = rooms.find(c => grid[c].SOL === 2);
-                
-                if (solS && solW && solR) {
-                    solverHasFoundSolution = true;
-                    storyLog("✅", `IL SOLVER HA RISOLTO: ${solS}, ${solW}, ${solR}`, "background: #fff; color: #000; font-weight: bold; border: 2px solid #10b981; padding: 4px;");
-                }
+            // --- MODIFICA: Logica di controllo scoperte parziali ---
+            
+            // 1. Controlla Sospettato
+            const solS = suspects.find(c => grid[c] && grid[c].SOL === 2);
+            if (solS && !foundParts.s) {
+                foundParts.s = true;
+                storyLog("🧩", `IL SOLVER HA DEDOTTO IL COLPEVOLE: ${solS}`, "color: #10b981; font-weight: bold;");
+            }
+
+            // 2. Controlla Arma
+            const solW = weapons.find(c => grid[c] && grid[c].SOL === 2);
+            if (solW && !foundParts.w) {
+                foundParts.w = true;
+                storyLog("🧩", `IL SOLVER HA DEDOTTO L'ARMA: ${solW}`, "color: #10b981; font-weight: bold;");
+            }
+
+            // 3. Controlla Stanza
+            const solR = rooms.find(c => grid[c] && grid[c].SOL === 2);
+            if (solR && !foundParts.r) {
+                foundParts.r = true;
+                storyLog("🧩", `IL SOLVER HA DEDOTTO LA STANZA: ${solR}`, "color: #10b981; font-weight: bold;");
+            }
+
+            // 4. Controlla Soluzione Completa (se non è già stata loggata)
+            if (!solverHasFoundSolution && foundParts.s && foundParts.w && foundParts.r) {
+                solverHasFoundSolution = true;
+                storyLog("✅", `IL SOLVER HA RISOLTO IL CASO: ${solS}, ${solW}, ${solR}`, "background: #fff; color: #000; font-weight: bold; border: 2px solid #10b981; padding: 4px;");
             }
         }
 
