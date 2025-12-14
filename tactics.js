@@ -218,7 +218,7 @@ function calculateTacticalMoves(currentLoc) {
         } else if (isMyRoom) { 
             score += 100; reasons.push("🛡️ Base"); 
         } else if (ownedByEnemy) { 
-            score -= 1000; reasons.push("💩 Bruciata"); // Penalità massiccia
+            score -= 1000; reasons.push("💩 Bruciata");
         } else { 
             score -= 50; reasons.push("❌ Innocente"); 
         }
@@ -233,10 +233,8 @@ function calculateTacticalMoves(currentLoc) {
 
         // --- 3. COSTO MOVIMENTO (MODIFICATO) ---
         if (isCurrent) {
-            // Se la stanza è bruciata (di un nemico), è comunque meglio restare che finire in corridoio.
-            // Diamo un piccolo bonus positivo invece di una penalità mortale.
             if (ownedByEnemy) {
-                score += 50; reasons.push("⚠️ Bruciata"); // Bonus basso ma positivo (meglio di niente)
+                score -= 500; reasons.push("⚠️ Bruciata");
             } else if (solStatus === 0 || isMyRoom || solStatus === 2) {
                 score += 1200; reasons.push("✅ Resta"); 
             } else {
