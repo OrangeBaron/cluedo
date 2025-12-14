@@ -10,8 +10,8 @@
     const HERO_NAME = "HERO";
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "David", "Eve"];
 
-    // NUMERO TOTALE DI AVVERSARI DESIDERATI (Min 2, Max 5 per regole standard)
-    const DESIRED_OPPONENTS = 3; // Cambia questo numero per testare con più/meno giocatori
+    // NUMERO TOTALE DI AVVERSARI DESIDERATI
+    const DESIRED_OPPONENTS = 3; 
 
     function storyLog(icon, text, style = "") {
         console.log(`%c${icon} ${text}`, style || "color: #e5e7eb; border-left: 2px solid #333; padding-left: 8px;");
@@ -47,14 +47,8 @@
     } else return console.error("❌ tactics.js mancante.");
 
     // --- 3. SETUP RANDOMIZZATO ---
-
-    // Seleziona gli avversari dal pool
     const selectedOpponents = OPPONENT_POOL.slice(0, DESIRED_OPPONENTS);
-
-    // Crea la lista giocatori (HERO + Avversari)
     let seatOrder = [HERO_NAME, ...selectedOpponents];
-
-    // RANDOMIZZA L'ORDINE DI SEDUTA
     seatOrder.sort(() => Math.random() - 0.5);
 
     players = seatOrder;
@@ -159,10 +153,10 @@
         }
     }
 
-    // Creazione Bot (assegnazione personaggio casuale in base all'ordine)
+    // Creazione Bot
     const simPlayers = players.map((p, i) => new SimPlayer(p, suspects[i] || "Unknown"));
 
-    // Distribuzione Carte (Segue l'ordine di players, che ora è random)
+    // Distribuzione Carte
     let pIdx = 0;
     while(deck.length > 0) {
         simPlayers[pIdx].hand.push(deck.pop());
@@ -170,12 +164,11 @@
     }
     simPlayers.forEach(p => p.initMemory());
 
-    // Setup Limiti per il Solver
+    // Setup Solver
     const baseCount = Math.floor((allCards.length - 3) / players.length);
     const remainder = (allCards.length - 3) % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
 
-    // Setup Mano HERO nel Solver
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
     heroPlayer.hand.forEach(c => setFact(c, HERO_NAME, 2));
 
@@ -224,8 +217,6 @@
     // --- 6. GAME LOOP ---
     let gameOver = false;
     let turnCount = 0;
-
-    // RANDOMIZZA CHI INIZIA IL PRIMO TURNO
     let currentPlayerIdx = Math.floor(Math.random() * players.length);
     console.log(`%c🎲 Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
 
@@ -253,8 +244,25 @@
         const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
         
         if (currentPlayer.inRoom && currentPlayer.squaresLeft <= 0) {
+            
+            // CHECK SOLUZIONE PRIMA DI MUOVERE
+            let knownBeforeMove = false;
             if (currentPlayer.name === HERO_NAME) {
-                // ... HERO LOGIC ...
+                if (grid[suspects.find(c => grid[c].SOL === 2)] && grid[weapons.find(c => grid[c].SOL === 2)] && grid[rooms.find(c => grid[c].SOL === 2)]) {
+                    knownBeforeMove = true;
+                }
+            } else if (currentPlayer.hasFullSolution()) {
+                knownBeforeMove = true;
+            }
+
+            if (knownBeforeMove) {
+                // STOP: Non muoverti, resta qui per accusare
+                currentPlayer.targetLocation = currentPlayer.currentLocation;
+                currentPlayer.squaresLeft = 0;
+                storyLog("🚨", `${currentPlayer.name} conosce la soluzione e procede con l'accusa.`, "color: cyan; font-weight:bold;");
+            } 
+            else if (currentPlayer.name === HERO_NAME) {
+                // --- HERO MOVEMENT (CLEANED) ---
                 mockElements['current-position'].value = currentPlayer.currentLocation; 
                 let tacticalMoves = calculateTacticalMoves(currentPlayer.currentLocation);
                 if (!canStay) tacticalMoves = tacticalMoves.filter(m => m.room !== currentPlayer.currentLocation);
@@ -262,10 +270,7 @@
                 const bestMove = reachableMoves.length > 0 ? reachableMoves[0] : (tacticalMoves[0] || null);
 
                 if (bestMove) {
-                    if (bestMove.hypothesis && bestMove.hypothesis.type === "Vittoria") {
-                        currentPlayer.targetLocation = bestMove.room;
-                        storyLog("🤖", `SOLVER CORRE A VINCERE: ${currentPlayer.targetLocation}`, "color: #a7f3d0");
-                    } else currentPlayer.targetLocation = bestMove.room; 
+                    currentPlayer.targetLocation = bestMove.room; // Niente più check "Vittoria" inutile
                     
                     if (bestMove.isSecret) {
                         currentPlayer.squaresLeft = 0;
@@ -280,54 +285,34 @@
                     }
                 }
             } else {
-                // ... BOT LOGIC ...
-                if (currentPlayer.hasFullSolution()) {
-                    const goal = currentPlayer.knownSolution.r;
-                    if (currentPlayer.currentLocation === goal) {
-                        currentPlayer.targetLocation = currentPlayer.currentLocation;
-                        currentPlayer.squaresLeft = 0;
-                        storyLog("🚨", `Bot ha la soluzione! Resta in ${goal} per accusare.`, "color: red; font-weight:bold;");
-                    } else {
-                        currentPlayer.targetLocation = goal;
-                        const dist = getDistance(currentPlayer.currentLocation, goal);
-                        if (dist <= dice) {
-                            currentPlayer.squaresLeft = 0; 
-                            updateTokenLocation(currentPlayer.character, goal);
-                            storyLog("🚨", `Bot corre alla scena del crimine: ${goal}`, "color: red;");
-                        } else {
-                            currentPlayer.squaresLeft = dist - dice; 
-                            storyLog("👣", `Bot si avvicina a ${goal}...`, "color: #d1d5db;");
-                        }
-                    }
-                } 
-                else {
-                    if (canStay) {
-                        currentPlayer.targetLocation = currentPlayer.currentLocation;
-                        currentPlayer.squaresLeft = 0;
-                        storyLog("⚓", "Bot sfruttatore: Rimane nella stanza.", "color: #d1d5db;");
-                    } else {
-                        const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
-                        let potentialMoves = Object.keys(dists).filter(r => r !== currentPlayer.currentLocation);
-                        const reachableRooms = potentialMoves.filter(r => dists[r] === 0 || dists[r] <= dice);
+                // --- BOT MOVEMENT (CLEANED) ---
+                // Qui arrivano solo i bot che NON hanno la soluzione (gestiti da knownBeforeMove sopra)
+                if (canStay) {
+                    currentPlayer.targetLocation = currentPlayer.currentLocation;
+                    currentPlayer.squaresLeft = 0;
+                    storyLog("⚓", "Bot sfruttatore: Rimane nella stanza.", "color: #d1d5db;");
+                } else {
+                    const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
+                    let potentialMoves = Object.keys(dists).filter(r => r !== currentPlayer.currentLocation);
+                    const reachableRooms = potentialMoves.filter(r => dists[r] === 0 || dists[r] <= dice);
 
-                        if (reachableRooms.length > 0) {
-                            const usefulRooms = reachableRooms.filter(r => currentPlayer.memory.rooms.includes(r));
-                            const dest = usefulRooms.length > 0 
-                                ? usefulRooms[Math.floor(Math.random() * usefulRooms.length)] 
-                                : reachableRooms[Math.floor(Math.random() * reachableRooms.length)];
-                            
-                            currentPlayer.squaresLeft = 0;
-                            currentPlayer.targetLocation = dest;
-                            updateTokenLocation(currentPlayer.character, dest);
-                            
-                            if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
-                            else storyLog("👣", `Raggiunge: ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
-                        } else {
-                            const dest = potentialMoves[Math.floor(Math.random() * potentialMoves.length)];
-                            currentPlayer.targetLocation = dest;
-                            currentPlayer.squaresLeft = dists[dest];
-                            storyLog("🎲", `Tiro basso (${dice}), si sposta verso ${dest}`, "color: #6b7280;");
-                        }
+                    if (reachableRooms.length > 0) {
+                        const usefulRooms = reachableRooms.filter(r => currentPlayer.memory.rooms.includes(r));
+                        const dest = usefulRooms.length > 0 
+                            ? usefulRooms[Math.floor(Math.random() * usefulRooms.length)] 
+                            : reachableRooms[Math.floor(Math.random() * reachableRooms.length)];
+                        
+                        currentPlayer.squaresLeft = 0;
+                        currentPlayer.targetLocation = dest;
+                        updateTokenLocation(currentPlayer.character, dest);
+                        
+                        if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
+                        else storyLog("👣", `Raggiunge: ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
+                    } else {
+                        const dest = potentialMoves[Math.floor(Math.random() * potentialMoves.length)];
+                        currentPlayer.targetLocation = dest;
+                        currentPlayer.squaresLeft = dists[dest];
+                        storyLog("🎲", `Tiro basso (${dice}), si sposta verso ${dest}`, "color: #6b7280;");
                     }
                 }
             }
@@ -348,13 +333,13 @@
             }
 
             if (accusation) {
-                storyLog("🏆", `ACCUSA DI ${currentPlayer.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "font-size: 1.2em; font-weight: bold; color: gold; border: 2px solid gold; padding: 10px;");
+                storyLog("❗️", `ACCUSA DI ${currentPlayer.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "background: #000; font-weight: bold; color: white; border: 2px solid red; padding: 4px;");
                 
                 if (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]) {
                     if (currentPlayer.name === HERO_NAME) {
-                        storyLog("🎉", `VITTORIA! ${currentPlayer.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; padding: 5px;");
+                        storyLog("🏆", `VITTORIA! ${currentPlayer.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
                     } else {
-                        storyLog("💥", `SCONFITTA! ${currentPlayer.name} ha risolto il caso in ${turnCount} turni.`, "background: red; color: white; padding: 5px;");
+                        storyLog("💥", `SCONFITTA! ${currentPlayer.name} ha risolto il caso in ${turnCount} turni.`, "background: red; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
                     }
                     gameOver = true;
                     break;
@@ -438,7 +423,7 @@
 
             try { runSolver(); } catch(e) {}
 
-            // --- MODIFICA: Logica di controllo scoperte parziali ---
+            // --- Logica di controllo scoperte parziali (VISUAL ONLY) ---
             
             // 1. Controlla Sospettato
             const solS = suspects.find(c => grid[c] && grid[c].SOL === 2);
@@ -465,6 +450,31 @@
             if (!solverHasFoundSolution && foundParts.s && foundParts.w && foundParts.r) {
                 solverHasFoundSolution = true;
                 storyLog("✅", `IL SOLVER HA RISOLTO IL CASO: ${solS}, ${solW}, ${solR}`, "background: #fff; color: #000; font-weight: bold; border: 2px solid #10b981; padding: 4px;");
+            }
+
+            // CHECK EPIFANIA IMMEDIATA (Stesso turno)
+            let finalAcc = null;
+            if (currentPlayer.name === HERO_NAME) {
+                const s = suspects.find(c => grid[c].SOL === 2);
+                const w = weapons.find(c => grid[c].SOL === 2);
+                const r = rooms.find(c => grid[c].SOL === 2);
+                if (s && w && r) finalAcc = { s, w, r };
+            } else if (currentPlayer.hasFullSolution()) {
+                finalAcc = currentPlayer.knownSolution;
+            }
+
+            if (finalAcc) {
+                storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, "color: cyan; font-weight: bold;");
+                storyLog("❗️", `ACCUSA DI ${currentPlayer.name}: ${finalAcc.s}, ${finalAcc.w}, ${finalAcc.r}`, "background: #000; font-weight: bold; color: white; border: 2px solid red; padding: 4px;");
+                if (finalAcc.s === solution[0] && finalAcc.w === solution[1] && finalAcc.r === solution[2]) {
+                    if (currentPlayer.name === HERO_NAME) storyLog("🏆", `VITTORIA! ${currentPlayer.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
+                    else storyLog("💥", `SCONFITTA! ${currentPlayer.name} ha risolto il caso in ${turnCount} turni.`, "background: red; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
+                    gameOver = true;
+                    break;
+                } else {
+                    storyLog("💀", `ACCUSA ERRATA!`, "color: red;");
+                    currentPlayer.isEliminated = true;
+                }
             }
         }
 
