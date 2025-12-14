@@ -43,61 +43,79 @@ function initPathfinding() {
     });
 }
 
-// --- TACTICAL ENGINE (PURE LOGIC) ---
+// --- STATISTICAL HELPER ---
 
 /**
- * Genera l'ipotesi migliore per una specifica stanza.
- * INTEGRAZIONI UTENTE:
- * 1. Mix di scudi (Carte Mie + Soluzioni) per non svelare la soluzione.
- * 2. Logica Cecchino in Late Game (Doppio Scudo).
+ * Calcola la "Densità" di una carta ignota.
+ * Punteggio alto = Molto probabile che sia in mano a un avversario (tanti slot liberi).
+ * Punteggio basso = Probabile che sia nella Busta (o in mano a uno con pochi slot).
  */
+function getCardDensity(card) {
+    if (!card || !grid[card] || grid[card].SOL !== 0) return 0; // Solo per carte ignote
+    
+    let density = 0;
+    players.forEach(p => {
+        if (p === myName) return;
+        
+        // Se il giocatore PUÒ avere la carta (non c'è un 'NO' sicuro)
+        if (grid[card][p] !== 1) {
+            // Conta slot bui (Carte totali - Carte viste)
+            const seen = allCards.filter(c => grid[c][p] === 2).length;
+            const slots = (limits[p] || 0) - seen;
+            
+            // Ogni slot buio aumenta la probabilità che la carta sia qui
+            if (slots > 0) density += slots;
+        }
+    });
+    return density;
+}
+
+// --- TACTICAL ENGINE ---
+
 function generateHypothesisForRoom(targetRoom, isLateGame = false) {
     const pickRandom = (arr) => arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
     
-    // --- 1. ANALISI CARTE E POOL ---
-    // Carte Ignote (Target dell'indagine)
+    // Helper: Seleziona la carta con la Densità più alta (Massimizza info gain)
+    const pickBestDensity = (arr) => {
+        if (!arr || arr.length === 0) return null;
+        // Ordina per densità decrescente
+        const sorted = [...arr].sort((a, b) => getCardDensity(b) - getCardDensity(a));
+        // Prendi la migliore (o una delle migliori se pari)
+        return sorted[0];
+    };
+
     const unknownS = suspects.filter(c => grid[c].SOL === 0);
     const unknownW = weapons.filter(c => grid[c].SOL === 0);
     
-    // Carte "Sicure" (Scudi validi) = Le mie carte (2) OR Le soluzioni già trovate (SOL=2)
-    // Nota: Usare una soluzione come scudo è potentissimo (nessuno può smentire), 
-    // ma mischiarla con le mie carte evita di far capire agli altri che so la soluzione.
     const safeS = suspects.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
     const safeW = weapons.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
 
-    // --- 2. LOGICA DI SELEZIONE ---
     let bestS, bestW;
 
-    // Helper: Seleziona uno scudo dal pool sicuro, o fallback su ignoto se non ho scudi
     const pickShield = (safeList, unknownList, allList) => {
         if (safeList.length > 0) return pickRandom(safeList);
-        if (unknownList.length > 0) return pickRandom(unknownList);
+        if (unknownList.length > 0) return pickBestDensity(unknownList); // Fallback intelligente
         return pickRandom(allList);
     };
 
-    // Helper: Seleziona un target da indagare
     const pickTarget = (unknownList, allList) => {
-        if (unknownList.length > 0) return pickRandom(unknownList);
-        return pickRandom(allList); // Se tutto noto, spara a caso
+        if (unknownList.length > 0) return pickBestDensity(unknownList); // USA LA DENSITÀ!
+        return pickRandom(allList); 
     };
 
-    // Stanza Risolta o Mia? (Funziona da scudo?)
     const isRoomSafe = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
 
-    // A) LOGICA "CECCHINO" (LATE GAME)
-    // Obiettivo: Bloccare tutte le vie di fuga tranne una specifica carta ignota.
+    // LOGICA DI SELEZIONE
     if (isLateGame) {
         const needS = unknownS.length > 0;
         const needW = unknownW.length > 0;
 
         if (needS && needW) {
-            // Mi mancano entrambi: Se la stanza è sicura, spara su entrambi (risparmia scudi carte).
-            // Se la stanza NON è sicura, usa uno scudo su S o W per garantire info sull'altro.
             if (isRoomSafe) {
                 bestS = pickTarget(unknownS, suspects);
                 bestW = pickTarget(unknownW, weapons);
             } else {
-                // Alternativa casuale: Scuda S o Scuda W
+                // Mix difensivo
                 if (Math.random() < 0.5 && safeS.length > 0) {
                     bestS = pickShield(safeS, unknownS, suspects);
                     bestW = pickTarget(unknownW, weapons);
@@ -108,36 +126,25 @@ function generateHypothesisForRoom(targetRoom, isLateGame = false) {
             }
         } 
         else if (needS) {
-            // Mi manca solo il Sospettato: BLINDA TUTTO IL RESTO.
-            // Usa scudo Arma + Stanza (se possibile) per forzare risposta su Sospettato.
             bestS = pickTarget(unknownS, suspects);
-            bestW = pickShield(safeW, unknownW, weapons); // Usa scudo Arma (Mio o Soluzione)
+            bestW = pickShield(safeW, unknownW, weapons);
         } 
         else if (needW) {
-            // Mi manca solo l'Arma: BLINDA TUTTO IL RESTO.
-            bestS = pickShield(safeS, unknownS, suspects); // Usa scudo Sospettato
+            bestS = pickShield(safeS, unknownS, suspects);
             bestW = pickTarget(unknownW, weapons);
         } 
         else {
-            // Tutto risolto (o quasi): Spara a caso o bluff totale
             bestS = pickShield(safeS, unknownS, suspects);
             bestW = pickShield(safeW, unknownW, weapons);
         }
     } 
-    
-    // B) LOGICA "ESPLORAZIONE" (EARLY GAME)
-    // Obiettivo: Scoprire più bit possibili (anche risposte generiche vanno bene).
     else {
-        // In Early Game, se la stanza è sicura, è un'ottima occasione per indagare su 
-        // DUE carte ignote (S+W) contemporaneamente.
-        // Se la stanza è ignota, usiamo uno scudo per bilanciare.
-        
+        // EARLY GAME: Caccia grossa alle carte dense
         if (isRoomSafe) {
             bestS = pickTarget(unknownS, suspects);
             bestW = pickTarget(unknownW, weapons);
         } else {
-            // Stanza ignota: rischioso chiedere 3 ignote (troppo vago). 
-            // Meglio metterne 1 sicura.
+            // Bilanciamento
             if (Math.random() < 0.5) {
                 bestS = pickShield(safeS, unknownS, suspects);
                 bestW = pickTarget(unknownW, weapons);
@@ -148,11 +155,10 @@ function generateHypothesisForRoom(targetRoom, isLateGame = false) {
         }
     }
 
-    // Fallback finale per null pointers (raro)
     if (!bestS) bestS = suspects[0];
     if (!bestW) bestW = weapons[0];
 
-    // Calcolo Tipo Strategia per UI
+    // Calcolo Tipo Strategia
     const isSafeS = (grid[bestS][myName] === 2 || grid[bestS].SOL === 2);
     const isSafeW = (grid[bestW][myName] === 2 || grid[bestW].SOL === 2);
     const isSafeR = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
@@ -160,10 +166,10 @@ function generateHypothesisForRoom(targetRoom, isLateGame = false) {
     const safeCount = (isSafeS ? 1 : 0) + (isSafeW ? 1 : 0) + (isSafeR ? 1 : 0);
     let strategyType = "";
 
-    if (safeCount === 3) strategyType = "Bluff Totale (0 Rischi)";
-    else if (safeCount === 2) strategyType = "Cecchino (Doppio Scudo)";
-    else if (safeCount === 1) strategyType = "Bilanciata (1 Scudo)";
-    else strategyType = "Aggressiva (3 Ignote)";
+    if (safeCount === 3) strategyType = "Bluff Totale";
+    else if (safeCount === 2) strategyType = "Cecchino";
+    else if (safeCount === 1) strategyType = "Bilanciata";
+    else strategyType = "Aggressiva";
 
     return { 
         suspect: bestS, 
@@ -173,15 +179,11 @@ function generateHypothesisForRoom(targetRoom, isLateGame = false) {
     };
 }
 
-/**
- * Calcola i punteggi tattici per tutte le stanze.
- * UPDATE: Rimosso penalità stanza nota in early game.
- */
 function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
 
     const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
-    const isLateGame = unknownCount <= 8; // Soglia leggermente alzata
+    const isLateGame = unknownCount <= 8; 
     const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
 
     let moves = rooms.map(room => {
@@ -194,54 +196,75 @@ function calculateTacticalMoves(currentLoc) {
             hypothesis = generateHypothesisForRoom(room, isLateGame);
         }
         
-        // Dati Posizione
         const isCurrent = room === currentLoc;
         const dist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
         const isSecret = !isCurrent && dist === 0; 
         const trueTurns = isCurrent ? 0 : TURN_MATRIX[currentLoc][room];
-        const diceReach = !isCurrent && !isSecret && (dist <= 10); // Assumiamo 9-10 col dado sia possibile
+        const diceReach = !isCurrent && !isSecret && (dist <= 10); 
         const solStatus = grid[room].SOL; 
         const isMyRoom = grid[room][myName] === 2;
 
-        // --- PUNTEGGIO DINAMICO ---
-        
-        // 1. Valore della Stanza
+        // --- 1. VALORE BASE ---
         if (solStatus === 2) { 
             score += 5000; reasons.push("🏆 DELITTO"); 
         } else if (solStatus === 0) { 
             score += 200; reasons.push("🔍 Ignota"); 
         } else if (isMyRoom) { 
-            // FIX: Niente penalità early game. Una base sicura è sempre buona per testare S+W.
             score += 100; reasons.push("🛡️ Base"); 
         } else { 
-            score -= 50; reasons.push("❌ Innocente"); // Stanza nota di altri (inutile)
+            score -= 50; reasons.push("❌ Innocente"); 
         }
 
-        // 2. Bonus Strategia (Dall'ipotesi)
-        // Se l'ipotesi è "Cecchino" o "Bluff Totale", stiamo controllando il gioco.
-        if (hypothesis.type && hypothesis.type.includes("Cecchino")) {
+        // --- 2. BONUS STRATEGIA ---
+        if (hypothesis.type === "Cecchino") {
             score += 300; reasons.push("🎯 Cecchino");
         }
-        if (hypothesis.type && hypothesis.type.includes("Aggressiva")) {
-            // Premia l'aggressività solo se costa poco movimento
+        if (hypothesis.type === "Aggressiva") {
             score += 150; reasons.push("🔥 Aggro");
         }
 
-        // 3. Costo Movimento (Il vero nemico)
+        // --- 3. COSTO MOVIMENTO (LOGICA "HUMAN-SAFE") ---
         if (isCurrent) {
-            // Rimanere è gratis. Se la stanza è utile (Ignota o Mia Base), rimani!
             if (solStatus === 0 || isMyRoom || solStatus === 2) {
-                score += 1000; reasons.push("✅ Resta qui");
+                score += 1200; reasons.push("✅ Resta"); // Molto alto per evitare rischi inutili
             } else {
-                score -= 200; reasons.push("💨 Vattene");
+                score -= 200; reasons.push("💨 Via!");
             }
         } else if (isSecret) {
-            score += 800; reasons.push("🚇 Passaggio");
-        } else if (diceReach) {
-            score += 100; reasons.push("🎲 Dado");
+            score += 900; reasons.push("🚇 Segreto"); // Bonus enorme (movimento sicuro)
         } else {
-            // Penalità pesante per i turni spesi a camminare
-            score -= (trueTurns * 80); 
+            // Analisi Rischio Dadi
+            if (dist <= 7) {
+                // Distanza media (statisticamente probabile)
+                score -= (trueTurns * 80); 
+                reasons.push("🎲 Facile");
+            } else if (dist <= 9) {
+                // ZONA PERICOLO: Serve un tiro sopra la media (8 o 9).
+                // Penalità severa per scoraggiare l'azzardo.
+                score -= 300; 
+                reasons.push("⚠️ Rischio");
+            } else {
+                // Impossibile in un turno (o quasi)
+                score -= (trueTurns * 100); 
+            }
+        }
+
+        // --- 4. BONUS DENSITÀ STATISTICA ---
+        if (!isGameSolved) {
+            // Quanto è "succosa" questa ipotesi statisticamente?
+            const dSuspect = getCardDensity(hypothesis.suspect);
+            const dWeapon = getCardDensity(hypothesis.weapon);
+            const dRoom = getCardDensity(room);
+
+            // Moltiplicatore 20: Aggressivo ma bilanciato dalla penalità di movimento
+            const totalDensity = (dSuspect + dWeapon + dRoom) * 20;
+            
+            if (totalDensity > 0) {
+                // Cap a 400 per evitare che la statistica rompa la logica di gioco base
+                const finalDensity = Math.min(totalDensity, 400);
+                score += finalDensity;
+                reasons.push(`📊 Stat:${finalDensity}`);
+            }
         }
 
         return { 
@@ -264,7 +287,6 @@ function updateTacticalSuggestions() {
         return;
     }
 
-    // Usa la funzione pura per i calcoli
     const rankedMoves = calculateTacticalMoves(currentLoc);
     const top3 = rankedMoves.filter(s => s.score > -500).slice(0, 3);
 
