@@ -2,12 +2,16 @@
 
 (async function runRealisticSimulation() {
 
-    // --- 1. CONFIGURAZIONE ---
+    // --- 1. CONFIGURAZIONE AVANZATA ---
     console.clear();
     const SIM_SPEED = 50; 
     const MAX_TURNS = 200;
-    const HERO_NAME = "HERO"; 
-    const OPPONENT_NAMES = ["Mustard", "Green", "Peacock"]; 
+
+    const HERO_NAME = "HERO";
+    const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "David", "Eve"];
+
+    // NUMERO TOTALE DI AVVERSARI DESIDERATI (Min 2, Max 5 per regole standard)
+    const DESIRED_OPPONENTS = 3; // Cambia questo numero per testare con più/meno giocatori
 
     function storyLog(icon, text, style = "") {
         console.log(`%c${icon} ${text}`, style || "color: #e5e7eb; border-left: 2px solid #333; padding-left: 8px;");
@@ -26,7 +30,7 @@
         'hand-counter-badge': { classList: { add:()=>{}, remove:()=>{} } },
         'log-area': { innerHTML: '' }
     };
-    
+
     document.getElementById = function(id) {
         return mockElements[id] || { 
             value: '', innerHTML: '', style: {}, 
@@ -34,7 +38,7 @@
             appendChild: ()=>{}, focus: ()=>{} 
         };
     };
-    
+
     window.updateTurnUI = () => {}; window.renderGrid = () => {}; window.log = () => {}; 
 
     if (typeof initPathfinding === 'function') {
@@ -42,21 +46,33 @@
         if (!TURN_MATRIX || Object.keys(TURN_MATRIX).length === 0) return console.error("❌ TURN_MATRIX vuota.");
     } else return console.error("❌ tactics.js mancante.");
 
-    // --- 3. RESET DATI ---
-    players = [HERO_NAME, ...OPPONENT_NAMES];
+    // --- 3. SETUP RANDOMIZZATO ---
+
+    // Seleziona gli avversari dal pool
+    const selectedOpponents = OPPONENT_POOL.slice(0, DESIRED_OPPONENTS);
+
+    // Crea la lista giocatori (HERO + Avversari)
+    let seatOrder = [HERO_NAME, ...selectedOpponents];
+
+    // RANDOMIZZA L'ORDINE DI SEDUTA
+    seatOrder.sort(() => Math.random() - 0.5);
+
+    players = seatOrder;
     myName = HERO_NAME;
+
     grid = {};
     constraints = [];
     history = [];
     limits = {};
     isSimulating = false;
 
+    // Init Griglia
     allCards.forEach(c => { 
         grid[c] = { SOL: 0 }; 
         players.forEach(p => grid[c][p] = 0); 
     });
 
-    // --- 4. CLASSE SMART BOT (INFALLIBILE) ---
+    // --- 4. CLASSE SMART BOT ---
     let deck = [...allCards];
     const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
     const solution = [shuffle([...suspects])[0], shuffle([...weapons])[0], shuffle([...rooms])[0]];
@@ -75,9 +91,8 @@
             this.inRoom = true; 
             this.wasDragged = false;
             
-            // --- MEMORIA PERFETTA ---
+            // Memoria
             this.knownSolution = { s: null, w: null, r: null };
-            // Liste di "Sospettati Possibili" (inizialmente tutti)
             this.memory = {
                 suspects: [...suspects],
                 weapons: [...weapons],
@@ -85,9 +100,7 @@
             };
         }
 
-        // Rimuove una carta dai possibili candidati (perché vista o posseduta)
         eliminate(card) {
-            // Se la carta è già eliminata, ignora
             if (!this.memory.suspects.includes(card) && 
                 !this.memory.weapons.includes(card) && 
                 !this.memory.rooms.includes(card)) return;
@@ -96,26 +109,19 @@
             this.memory.weapons = this.memory.weapons.filter(c => c !== card);
             this.memory.rooms = this.memory.rooms.filter(c => c !== card);
 
-            // CONTROLLO PER ESCLUSIONE: Se rimane solo 1 opzione, è la soluzione
             if (this.memory.suspects.length === 1) this.knownSolution.s = this.memory.suspects[0];
             if (this.memory.weapons.length === 1) this.knownSolution.w = this.memory.weapons[0];
             if (this.memory.rooms.length === 1) this.knownSolution.r = this.memory.rooms[0];
         }
 
         initMemory() {
-            // Un bot sa che le carte che ha in mano NON sono la soluzione
             this.hand.forEach(c => this.eliminate(c));
         }
 
-        // Analizza il silenzio degli avversari
-        analyzeNoResponse(triplet) { // triplet = {s, w, r}
-            // Logica Infallibile:
-            // Se nessuno ha risposto, le carte della tripletta sono la soluzione...
-            // ...A MENO CHE non siano carte che ho io in mano!
-            
+        analyzeNoResponse(triplet) { 
             if (!this.hand.includes(triplet.s)) {
                 this.knownSolution.s = triplet.s;
-                this.memory.suspects = [triplet.s]; // Resetta memoria sugli altri
+                this.memory.suspects = [triplet.s];
             }
             if (!this.hand.includes(triplet.w)) {
                 this.knownSolution.w = triplet.w;
@@ -132,38 +138,31 @@
         }
 
         generateHypothesis(currentRoom) {
-            // 1. Sceglie carte dalla memoria (Ignoti)
-            // Se sa già la soluzione di una categoria, usa quella (per confermare o chiudere)
-            // Se la lista è vuota (caso limite), pesca a caso
             const pick = (list, known) => known || (list.length > 0 ? list[Math.floor(Math.random() * list.length)] : null);
             
             let s = pick(this.memory.suspects, this.knownSolution.s) || suspects[0];
             let w = pick(this.memory.weapons, this.knownSolution.w) || weapons[0];
             let r = currentRoom;
 
-            // 2. Logica Bluff (20% chance)
-            // Sostituisce una carta ignota con una carta in mano per confondere
+            // Bluff (20%)
             if (Math.random() < 0.2) {
                 const mySuspects = this.hand.filter(c => suspects.includes(c));
                 const myWeapons = this.hand.filter(c => weapons.includes(c));
                 
-                // Bluffa sul sospettato
                 if (Math.random() < 0.5 && mySuspects.length > 0) {
                     s = mySuspects[Math.floor(Math.random() * mySuspects.length)];
-                } 
-                // Bluffa sull'arma
-                else if (myWeapons.length > 0) {
+                } else if (myWeapons.length > 0) {
                     w = myWeapons[Math.floor(Math.random() * myWeapons.length)];
                 }
             }
-
             return { s, w, r };
         }
     }
 
+    // Creazione Bot (assegnazione personaggio casuale in base all'ordine)
     const simPlayers = players.map((p, i) => new SimPlayer(p, suspects[i] || "Unknown"));
 
-    // Distribuzione
+    // Distribuzione Carte (Segue l'ordine di players, che ora è random)
     let pIdx = 0;
     while(deck.length > 0) {
         simPlayers[pIdx].hand.push(deck.pop());
@@ -171,11 +170,12 @@
     }
     simPlayers.forEach(p => p.initMemory());
 
-    // Setup Hero limits
+    // Setup Limiti per il Solver
     const baseCount = Math.floor((allCards.length - 3) / players.length);
     const remainder = (allCards.length - 3) % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
-    
+
+    // Setup Mano HERO nel Solver
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
     heroPlayer.hand.forEach(c => setFact(c, HERO_NAME, 2));
 
@@ -202,26 +202,33 @@
                 player.targetLocation = null; 
             }
             if (!isForcedDrag && player.targetLocation && newRoom !== player.targetLocation) {
-                 player.squaresLeft = getDistance(newRoom, player.targetLocation);
-                 player.inRoom = false; 
+                player.squaresLeft = getDistance(newRoom, player.targetLocation);
+                player.inRoom = false; 
             }
         }
     }
 
     // --- 5. LOG AVVIO ---
     storyLog("🕵️", "CLUEDO MATCH SIMULATOR", "font-size: 1.2em; font-weight: bold; background: #333; color: #4ade80;");
+    console.log(`%cGiocatori (${players.length}): [${players.join(", ")}]`, "color: #9ca3af");
     storyLog("🤫", `SOLUZIONE REALE: [${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
-    
+
     console.log("%c🃏 DISTRIBUZIONE CARTE:", "color: #f472b6; font-weight: bold; margin-top: 5px;");
     simPlayers.forEach(p => {
-         console.log(`   %c${p.name}: %c${p.hand.join(", ")}`, "font-weight:bold; color: #fbbf24;", "color: #e5e7eb;");
+        const isHero = p.name === HERO_NAME;
+        const style = isHero ? "font-weight:bold; color: #10b981;" : "font-weight:bold; color: #fbbf24;";
+        console.log(`   %c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, style, "color: #e5e7eb;");
     });
     console.log("---------------------------------------------------");
 
     // --- 6. GAME LOOP ---
     let gameOver = false;
     let turnCount = 0;
-    let currentPlayerIdx = 0;
+
+    // RANDOMIZZA CHI INIZIA IL PRIMO TURNO
+    let currentPlayerIdx = Math.floor(Math.random() * players.length);
+    console.log(`%c🎲 Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
+
     let solverHasFoundSolution = false;
 
     while (!gameOver && turnCount < MAX_TURNS) {
@@ -246,7 +253,7 @@
         
         if (currentPlayer.inRoom && currentPlayer.squaresLeft <= 0) {
             if (currentPlayer.name === HERO_NAME) {
-                // ... (Logica Movimento Hero Invariata) ...
+                // ... HERO LOGIC ...
                 mockElements['current-position'].value = currentPlayer.currentLocation; 
                 let tacticalMoves = calculateTacticalMoves(currentPlayer.currentLocation);
                 if (!canStay) tacticalMoves = tacticalMoves.filter(m => m.room !== currentPlayer.currentLocation);
@@ -255,8 +262,8 @@
 
                 if (bestMove) {
                     if (bestMove.hypothesis && bestMove.hypothesis.type === "Vittoria") {
-                         currentPlayer.targetLocation = bestMove.room;
-                         storyLog("🤖", `SOLVER CORRE A VINCERE: ${currentPlayer.targetLocation}`, "color: #a7f3d0");
+                        currentPlayer.targetLocation = bestMove.room;
+                        storyLog("🤖", `SOLVER CORRE A VINCERE: ${currentPlayer.targetLocation}`, "color: #a7f3d0");
                     } else currentPlayer.targetLocation = bestMove.room; 
                     
                     if (bestMove.isSecret) {
@@ -272,33 +279,26 @@
                     }
                 }
             } else {
-                // --- BOT MOVEMENT ---
-                // Se ha la soluzione, cerca di andare nella stanza del delitto
+                // ... BOT LOGIC ...
                 if (currentPlayer.hasFullSolution()) {
                     const goal = currentPlayer.knownSolution.r;
                     if (currentPlayer.currentLocation === goal) {
-                        // È già lì, sta fermo per accusare
                         currentPlayer.targetLocation = currentPlayer.currentLocation;
                         currentPlayer.squaresLeft = 0;
                         storyLog("🚨", `Bot ha la soluzione! Resta in ${goal} per accusare.`, "color: red; font-weight:bold;");
                     } else {
-                        // Cerca di andare verso il goal
-                        // (Logica semplificata: se raggiungibile va, altrimenti si avvicina)
                         currentPlayer.targetLocation = goal;
                         const dist = getDistance(currentPlayer.currentLocation, goal);
                         if (dist <= dice) {
-                            currentPlayer.squaresLeft = 0; // Arriva
+                            currentPlayer.squaresLeft = 0; 
                             updateTokenLocation(currentPlayer.character, goal);
                             storyLog("🚨", `Bot corre alla scena del crimine: ${goal}`, "color: red;");
                         } else {
-                             // Si avvicina (semplificato, simuliamo solo spostamento pedina)
-                             // In un gioco reale servirebbe pathfinding complesso, qui assumiamo si avvicini
-                             currentPlayer.squaresLeft = dist - dice; 
-                             storyLog("👣", `Bot si avvicina a ${goal}...`, "color: #d1d5db;");
+                            currentPlayer.squaresLeft = dist - dice; 
+                            storyLog("👣", `Bot si avvicina a ${goal}...`, "color: #d1d5db;");
                         }
                     }
                 } 
-                // Movimento Standard (Investigazione)
                 else {
                     if (canStay) {
                         currentPlayer.targetLocation = currentPlayer.currentLocation;
@@ -310,11 +310,10 @@
                         const reachableRooms = potentialMoves.filter(r => dists[r] === 0 || dists[r] <= dice);
 
                         if (reachableRooms.length > 0) {
-                            // Preferisce stanze ignote
                             const usefulRooms = reachableRooms.filter(r => currentPlayer.memory.rooms.includes(r));
                             const dest = usefulRooms.length > 0 
-                                   ? usefulRooms[Math.floor(Math.random() * usefulRooms.length)] 
-                                   : reachableRooms[Math.floor(Math.random() * reachableRooms.length)];
+                                ? usefulRooms[Math.floor(Math.random() * usefulRooms.length)] 
+                                : reachableRooms[Math.floor(Math.random() * reachableRooms.length)];
                             
                             currentPlayer.squaresLeft = 0;
                             currentPlayer.targetLocation = dest;
@@ -323,7 +322,6 @@
                             if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
                             else storyLog("👣", `Raggiunge: ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
                         } else {
-                            // Nulla raggiungibile, muovi a caso verso una direzione
                             const dest = potentialMoves[Math.floor(Math.random() * potentialMoves.length)];
                             currentPlayer.targetLocation = dest;
                             currentPlayer.squaresLeft = dists[dest];
@@ -345,7 +343,6 @@
                 const r = rooms.find(c => grid[c].SOL === 2);
                 if (s && w && r) accusation = { s, w, r };
             } else if (currentPlayer.hasFullSolution()) {
-                // Il bot accusa SOLO se è sicuro al 100%
                 accusation = currentPlayer.knownSolution;
             }
 
@@ -371,7 +368,6 @@
                 hypothesis.w = suggestion.weapon;
                 storyLog("🧠", `Indagine Hero: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, "color: #93c5fd");
             } else {
-                // Smart Bot Hypothesis
                 const h = currentPlayer.generateHypothesis(currentPlayer.currentLocation);
                 hypothesis.s = h.s;
                 hypothesis.w = h.w;
@@ -394,7 +390,7 @@
                 if (matches.length > 0) {
                     responder = checker;
                     cardShown = matches[0]; 
-                    storyLog("✋", `${responder.name} mostra ${cardShown} a ${currentPlayer.name}`, "color: #fca5a5; font-weight: bold;");
+                    storyLog("✋", `${responder.name} mostra ${cardShown} a ${currentPlayer.name}`, "color: #fca5a5;");
                     break;
                 } else {
                     storyLog("❌", `${checker.name} passa`, "color: #4b5563; font-size: 0.9em;");
@@ -406,36 +402,27 @@
             }
 
             if (responder) {
-                // 1. GESTIONE HERO (Il giocatore umano vede)
                 if (currentPlayer.name === HERO_NAME) {
                     setFact(cardShown, responder.name, 2); 
                     storyLog("👀", `Hai visto: ${cardShown}`, "color: #bef264");
                 } 
-                // 2. GESTIONE BOT (Il bot vede e impara)
                 else {
-                    // Il bot elimina la carta mostrata dalla sua lista di possibili soluzioni
                     currentPlayer.eliminate(cardShown);
                 }
 
-                // 3. AGGIORNAMENTO VINCOLI GLOBALI (Per il Solver di Hero)
-                // Se due bot si scambiano carte, Hero non vede la carta ma registra il vincolo
                 if (responder.name !== HERO_NAME && currentPlayer.name !== HERO_NAME) {
                     addConstraint(responder.name, [hypothesis.s, hypothesis.w, hypothesis.r]);
                 }
             } else {
-                // --- NESSUNO RISPONDE ---
-                
-                // 1. HERO
+                // NESSUNO RISPONDE
+                storyLog("😱", `Nessuno può smentire!`, "color: #f472b6");
                 if (currentPlayer.name === HERO_NAME) {
                     [hypothesis.s, hypothesis.w, hypothesis.r].forEach(c => {
                         if (grid[c][HERO_NAME] !== 2) grid[c].SOL = 2;
                     });
                 }
-                // 2. BOT
                 else {
-                    // Analizza la tripletta filtrando le proprie carte
                     currentPlayer.analyzeNoResponse({s: hypothesis.s, w: hypothesis.w, r: hypothesis.r});
-                    
                     if (currentPlayer.hasFullSolution()) {
                         storyLog("💡", `${currentPlayer.name} ha capito tutto! (Soluzione Confermata)`, "color: #fcd34d;");
                     } else {
@@ -446,7 +433,6 @@
 
             try { runSolver(); } catch(e) {}
 
-            // --- Check se il Solver (Tu/Hero) ha la soluzione completa ---
             if (!solverHasFoundSolution) {
                 const solS = suspects.find(c => grid[c].SOL === 2);
                 const solW = weapons.find(c => grid[c].SOL === 2);
