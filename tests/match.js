@@ -406,13 +406,19 @@
             }
 
             if (responder) {
-                // HERO vede
+                // 1. GESTIONE HERO (Il giocatore umano vede)
                 if (currentPlayer.name === HERO_NAME) {
                     setFact(cardShown, responder.name, 2); 
                     storyLog("👀", `Hai visto: ${cardShown}`, "color: #bef264");
                 } 
+                // 2. GESTIONE BOT (Il bot vede e impara)
+                else {
+                    // Il bot elimina la carta mostrata dalla sua lista di possibili soluzioni
+                    currentPlayer.eliminate(cardShown);
+                }
 
-                // Vincoli per Hero
+                // 3. AGGIORNAMENTO VINCOLI GLOBALI (Per il Solver di Hero)
+                // Se due bot si scambiano carte, Hero non vede la carta ma registra il vincolo
                 if (responder.name !== HERO_NAME && currentPlayer.name !== HERO_NAME) {
                     addConstraint(responder.name, [hypothesis.s, hypothesis.w, hypothesis.r]);
                 }
@@ -425,7 +431,7 @@
                         if (grid[c][HERO_NAME] !== 2) grid[c].SOL = 2;
                     });
                 }
-                // 2. BOT -> ANALISI INFALLIBILE
+                // 2. BOT
                 else {
                     // Analizza la tripletta filtrando le proprie carte
                     currentPlayer.analyzeNoResponse({s: hypothesis.s, w: hypothesis.w, r: hypothesis.r});
