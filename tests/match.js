@@ -1,4 +1,4 @@
-// === CLUEDO REALISTIC MATCH SIMULATOR (FIXED) ===
+// === CLUEDO REALISTIC MATCH SIMULATOR ===
 
 (async function runRealisticSimulation() {
 
@@ -6,9 +6,11 @@
     console.clear();
     const SIM_SPEED = 50; 
     const MAX_TURNS = 200;
+
     const HERO_NAME = "HERO";
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "David", "Eve"];
-    const DESIRED_OPPONENTS = 3; 
+
+    const DESIRED_OPPONENTS = 3; // NUMERO TOTALE DI AVVERSARI DESIDERATI
 
     function storyLog(icon, text, style = "") {
         console.log(`%c${icon} ${text}`, style || "color: #e5e7eb; border-left: 2px solid #333; padding-left: 8px;");
@@ -119,7 +121,7 @@
             return this.hasFullSolution() ? this.knownSolution : null;
         }
 
-        // METODO REINSERITO: Generazione Ipotesi
+        // GENERAZIONE IPOTESI
         generateHypothesis(currentRoom) {
             const pick = (list, known) => known || (list.length > 0 ? list[Math.floor(Math.random() * list.length)] : null);
             
@@ -188,15 +190,21 @@
     // --- 5. LOG AVVIO ---
     storyLog("🕵️", "CLUEDO MATCH SIMULATOR", "font-size: 1.2em; font-weight: bold; background: #333; color: #4ade80;");
     storyLog("🤫", `SOLUZIONE REALE: [${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
+    storyLog("🃏", "DISTRIBUZIONE CARTE:", "color: #f472b6; font-weight: bold; margin-top: 5px;");
+    simPlayers.forEach(p => {
+        const isHero = p.name === HERO_NAME;
+        const style = isHero ? "font-weight:bold; color: #10b981;" : "font-weight:bold; color: #fbbf24;";
+        console.log(`   %c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, style, "color: #e5e7eb;");
+    });
     console.log("---------------------------------------------------");
 
     // --- HELPER DI GIOCO ---
     
-    // Gestione Accusa (Unificata ma con testi originali)
+    // Gestione Accusa
     function handleAccusation(player, accusation, turnCount) {
         if (!accusation) return false;
 
-        storyLog("❗️", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "background: #000; font-weight: bold; color: white; border: 2px solid red; padding: 4px;");
+        storyLog("❗️", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "background: #000; color: white; font-weight: bold; border: 2px solid red; padding: 4px;");
         
         const isWin = (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]);
         
@@ -221,7 +229,7 @@
     let foundParts = { s: false, w: false, r: false };
     let solverWonLog = false;
 
-    console.log(`%c🎲 Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
+    storyLog("🎲", `Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
 
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
@@ -250,28 +258,52 @@
             // 2. MOVIMENTO
             const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
             
-            if (currentPlayer.inRoom && currentPlayer.squaresLeft <= 0) {
+            // --- CASO A: SEI NEL CORRIDOIO (Stai viaggiando) ---
+            if (!currentPlayer.inRoom) {
+                currentPlayer.squaresLeft -= dice;
+
+                if (currentPlayer.squaresLeft <= 0) {
+                    // ARRIVATO A DESTINAZIONE
+                    updateTokenLocation(currentPlayer.character, currentPlayer.targetLocation);
+                    storyLog("🏃", `Arriva in ${currentPlayer.targetLocation} (Dadi: ${dice})`, "color: #d1d5db;");
+                    // Nota: Essendo arrivato, inRoom diventa true, ma siamo dentro l'IF del corridoio,
+                    // quindi saltiamo il blocco "ELSE" qui sotto. Niente turno extra!
+                } else {
+                    // ANCORA IN VIAGGIO
+                    storyLog("👣", `Prosegue verso ${currentPlayer.targetLocation} (Dadi: ${dice}, Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
+                }
+            } 
+            
+            // --- CASO B: SEI IN UNA STANZA (Decidi dove andare) ---
+            else {
                 // LOGICA HERO
                 if (currentPlayer.name === HERO_NAME) {
                     mockElements['current-position'].value = currentPlayer.currentLocation; 
                     let moves = calculateTacticalMoves(currentPlayer.currentLocation);
                     if (!canStay) moves = moves.filter(m => m.room !== currentPlayer.currentLocation);
+                    
+                    // Filtra solo le mosse valide col dado attuale
                     const valid = moves.filter(m => m.isCurrent || m.isSecret || m.dist <= dice);
+                    
+                    // Se non raggiungo nulla, prendo la mossa migliore ma vado in corridoio
                     const best = valid.length > 0 ? valid[0] : (moves[0] || null);
 
                     if (best) {
-                        currentPlayer.targetLocation = best.room;
-                        
-                        if (best.isSecret) {
-                            currentPlayer.squaresLeft = 0;
+                        const isReachableNow = best.isCurrent || best.isSecret || best.dist <= dice;
+
+                        if (isReachableNow) {
+                            // Raggiungo subito la destinazione
+                            currentPlayer.targetLocation = best.room;
                             updateTokenLocation(currentPlayer.character, best.room);
-                            storyLog("🚇", `Usa passaggio segreto -> ${best.room}`, "color: #9ca3af;");
-                        } else if (best.isCurrent) {
-                            currentPlayer.squaresLeft = 0;
-                            storyLog("⚓", "Sfrutta il trascinamento: Rimane nella stanza.", "color: #d1d5db;");
+                            if (best.isSecret) storyLog("🚇", `Usa passaggio segreto -> ${best.room}`, "color: #9ca3af;");
+                            else if (!best.isCurrent) storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, "color: #d1d5db;");
+                            else storyLog("⚓️", "Resta nella stanza.", "color: #d1d5db;");
                         } else {
-                            if (currentPlayer.targetLocation === currentPlayer.currentLocation) currentPlayer.squaresLeft = 0;
-                            else currentPlayer.squaresLeft = getDistance(currentPlayer.currentLocation, currentPlayer.targetLocation);
+                            // Tiro insufficiente: Esco in corridoio
+                            currentPlayer.targetLocation = best.room;
+                            currentPlayer.inRoom = false; // Esco dalla stanza
+                            currentPlayer.squaresLeft = best.dist - dice; // Sottraggo il dado
+                            storyLog("🎲", `Tiro basso (${dice}), esce verso  ${best.room} (Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
                         }
                     }
                 } 
@@ -280,13 +312,16 @@
                     if (canStay) {
                         currentPlayer.targetLocation = currentPlayer.currentLocation;
                         currentPlayer.squaresLeft = 0;
-                        storyLog("⚓", "Bot sfruttatore: Rimane nella stanza.", "color: #d1d5db;");
+                        storyLog("⚓️", "Resta nella stanza.", "color: #d1d5db;");
                     } else {
                         const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
                         let potential = Object.keys(dists).filter(r => r !== currentPlayer.currentLocation);
+                        
+                        // Stanze raggiungibili SUBITO
                         const reachable = potential.filter(r => dists[r] === 0 || dists[r] <= dice);
 
                         if (reachable.length > 0) {
+                            // Il bot sceglie una stanza raggiungibile (priorità alla memoria)
                             const useful = reachable.filter(r => currentPlayer.memory.rooms.includes(r));
                             const dest = useful.length > 0 
                                 ? useful[Math.floor(Math.random() * useful.length)] 
@@ -297,12 +332,16 @@
                             updateTokenLocation(currentPlayer.character, dest);
 
                             if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
-                            else storyLog("👣", `Raggiunge: ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
+                            else storyLog("🏃", `Raggiunge ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
                         } else {
+                            // TIRO BASSO: Deve uscire nel corridoio
                             const dest = potential[Math.floor(Math.random() * potential.length)];
                             currentPlayer.targetLocation = dest;
-                            currentPlayer.squaresLeft = dists[dest];
-                            storyLog("🎲", `Tiro basso (${dice}), si sposta verso ${dest}`, "color: #6b7280;");
+                            
+                            currentPlayer.inRoom = false; // Esco!
+                            currentPlayer.squaresLeft = dists[dest] - dice; // Sottraggo il dado
+                            
+                            storyLog("🎲", `Tiro basso (${dice}), esce verso ${dest} (Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
                         }
                     }
                 }
@@ -348,7 +387,7 @@
                     storyLog("✋", `${responder.name} mostra ${cardShown} a ${currentPlayer.name}`, "color: #fca5a5;");
                     break;
                 } else {
-                    storyLog("❌", `${checker.name} passa`, "color: #4b5563; font-size: 0.9em;");
+                    storyLog("❌", `${checker.name} passa`, "color: #4b5563;");
                     setFact(hypothesis.s, checker.name, 1);
                     setFact(hypothesis.w, checker.name, 1);
                     setFact(hypothesis.r, checker.name, 1);
