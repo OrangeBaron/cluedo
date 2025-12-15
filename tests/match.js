@@ -204,7 +204,7 @@
     function handleAccusation(player, accusation, turnCount) {
         if (!accusation) return false;
 
-        storyLog("❗️", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "background: #000; color: white; font-weight: bold; border: 2px solid red; padding: 4px;");
+        storyLog("🫵", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "color: red; font-weight: bold;");
         
         const isWin = (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]);
         
@@ -216,7 +216,7 @@
             }
             return { gameOver: true };
         } else {
-            storyLog("💀", `ACCUSA ERRATA!`, "color: red;");
+            storyLog("💀", `ACCUSA ERRATA!`, "color: red; font-weight: bold;");
             player.isEliminated = true;
             return { gameOver: false };
         }
@@ -253,7 +253,7 @@
         if (preMoveSol) {
             currentPlayer.targetLocation = currentPlayer.currentLocation;
             currentPlayer.squaresLeft = 0;
-            storyLog("🚨", `${currentPlayer.name} conosce la soluzione e procede con l'accusa.`, "color: cyan; font-weight:bold;");
+            storyLog("🚨", `${currentPlayer.name} conosce la soluzione e procede con l'accusa.`, "color: #fcd34d;");
         } else {
             // 2. MOVIMENTO
             const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
@@ -414,7 +414,7 @@
                 } else {
                     currentPlayer.analyzeNoResponse(hypothesis);
                     if (currentPlayer.hasFullSolution()) {
-                        storyLog("💡", `${currentPlayer.name} ha capito tutto! (Soluzione Confermata)`, "color: #fcd34d;");
+                        storyLog("💡", `${currentPlayer.name} ha capito tutto!`, "color: #fcd34d;");
                     } else {
                         storyLog("🤔", `${currentPlayer.name} ha dedotto una parte della soluzione...`, "color: #fcd34d;");
                     }
@@ -440,7 +440,7 @@
             // CHECK EPIFANIA IMMEDIATA
             const postMoveSol = currentPlayer.getSolutionAttempt();
             if (postMoveSol) {
-                storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, "color: cyan; font-weight: bold;");
+                storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, "color: #fcd34d;");
                 const res = handleAccusation(currentPlayer, postMoveSol, turnCount);
                 if (res && res.gameOver) { gameOver = true; break; }
             }
