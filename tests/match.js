@@ -2,21 +2,41 @@
 
 (async function runRealisticSimulation() {
 
-    // --- 1. CONFIGURAZIONE ---
+    // ======================================================
+    // 1. CONFIGURAZIONE & TEMI LOG
+    // ======================================================
     console.clear();
     const SIM_SPEED = 50; 
     const MAX_TURNS = 200;
-
     const HERO_NAME = "HERO";
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "David", "Eve"];
+    const DESIRED_OPPONENTS = 3; // Numero di avversari da simulare (max 5)
 
-    const DESIRED_OPPONENTS = 3; // NUMERO TOTALE DI AVVERSARI DESIDERATI
+    // Palette Colori Semantica per la Console
+    const LogTheme = {
+        HEADER:     "color: #fbbf24; font-weight: bold;", // Ambra
+        MOVE:       "color: #38bdf8;", // Ciano
+        DICE:       "color: #94a3b8;", // Grigio bluastro
+        HYPOTHESIS: "color: #c084fc;", // Viola chiaro
+        RESPONSE:   "color: #f472b6; font-weight: bold;", // Rosa
+        PASS:       "color: #6b7280;", // Grigio scuro
+        HERO_INFO:  "color: #bef264; font-weight: bold;", // Lime
+        SOLVER:     "color: #10b981; font-weight: bold;", // Smeraldo
+        WIN:        "background: #065f46; color: white; font-weight: bold; padding: 4px; border: 1px solid #34d399;",
+        FAIL:       "background: #991b1b; color: white; font-weight: bold; padding: 4px; border: 1px solid #f87171;",
+        WARN:       "color: #fcd34d;", // Giallo allerta
+        ERROR:      "color: #ef4444; font-weight: bold;" // Rosso
+    };
 
-    function storyLog(icon, text, style = "") {
-        console.log(`%c${icon} ${text}`, style || "color: #e5e7eb; border-left: 2px solid #333; padding-left: 8px;");
+    function storyLog(icon, text, style) {
+        // Se non viene passato uno stile specifico, usa un default neutro
+        const finalStyle = style || "color: #e5e7eb;";
+        console.log(`%c${icon} ${text}`, finalStyle);
     }
 
-    // --- 2. MOCK DOM ---
+    // ======================================================
+    // 2. MOCK DOM & VALIDAZIONE AMBIENTE
+    // ======================================================
     const mockElements = {
         'current-position': { value: 'Ingresso' },
         'tactical-suggestions': { innerHTML: '' },
@@ -38,6 +58,7 @@
         };
     };
 
+    // Disabilita funzioni UI reali
     window.updateTurnUI = () => {}; window.renderGrid = () => {}; window.log = () => {}; 
 
     if (typeof initPathfinding === 'function') {
@@ -45,30 +66,38 @@
         if (!TURN_MATRIX || Object.keys(TURN_MATRIX).length === 0) return console.error("❌ TURN_MATRIX vuota.");
     } else return console.error("❌ tactics.js mancante.");
 
-    // --- 3. SETUP PARTITA ---
+
+    // ======================================================
+    // 3. STATO DELLA SIMULAZIONE
+    // ======================================================
     const selectedOpponents = OPPONENT_POOL.slice(0, DESIRED_OPPONENTS);
     let seatOrder = [HERO_NAME, ...selectedOpponents].sort(() => Math.random() - 0.5);
 
-    players = seatOrder;
-    myName = HERO_NAME;
-    grid = {};
-    constraints = [];
-    history = [];
-    limits = {};
+    players = seatOrder; // Globale di solver.js
+    myName = HERO_NAME;  // Globale di solver.js
+    grid = {};           // Globale di solver.js
+    constraints = [];    // Globale di solver.js
+    history = [];        // Globale di solver.js
+    limits = {};         // Globale di solver.js
     isSimulating = false;
 
+    // Init Griglia Solver
     allCards.forEach(c => { 
         grid[c] = { SOL: 0 }; 
         players.forEach(p => grid[c][p] = 0); 
     });
 
-    // --- 4. CLASSE BOT & LOGICA ---
+    // Setup Mazzo e Soluzione
     let deck = [...allCards];
     const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
     const solution = [shuffle([...suspects])[0], shuffle([...weapons])[0], shuffle([...rooms])[0]];
     deck = deck.filter(c => !solution.includes(c));
     shuffle(deck);
 
+
+    // ======================================================
+    // 4. CLASSE SIM PLAYER
+    // ======================================================
     class SimPlayer {
         constructor(name, characterName) {
             this.name = name;
@@ -79,13 +108,14 @@
             this.targetLocation = null;
             this.squaresLeft = 0;
             this.inRoom = true; 
-            this.wasDragged = false;
+            this.wasDragged = false; // Flag se spostato da un'ipotesi avversaria
             
             this.knownSolution = { s: null, w: null, r: null };
             this.memory = { suspects: [...suspects], weapons: [...weapons], rooms: [...rooms] };
         }
 
         eliminate(card) {
+            // Rimuove carta dalle possibilità
             if (!this.memory.suspects.includes(card) && 
                 !this.memory.weapons.includes(card) && 
                 !this.memory.rooms.includes(card)) return;
@@ -102,6 +132,7 @@
         initMemory() { this.hand.forEach(c => this.eliminate(c)); }
 
         analyzeNoResponse(triplet) { 
+            // Se nessuno risponde, le carte sono la soluzione (a meno che non le abbia io)
             if (!this.hand.includes(triplet.s)) { this.knownSolution.s = triplet.s; this.memory.suspects = [triplet.s]; }
             if (!this.hand.includes(triplet.w)) { this.knownSolution.w = triplet.w; this.memory.weapons = [triplet.w]; }
             if (!this.hand.includes(triplet.r)) { this.knownSolution.r = triplet.r; this.memory.rooms = [triplet.r]; }
@@ -112,6 +143,7 @@
         }
 
         getSolutionAttempt() {
+            // HERO usa il solver globale, BOT usa la memoria locale
             if (this.name === HERO_NAME) {
                 const s = suspects.find(c => grid[c].SOL === 2);
                 const w = weapons.find(c => grid[c].SOL === 2);
@@ -121,7 +153,6 @@
             return this.hasFullSolution() ? this.knownSolution : null;
         }
 
-        // GENERAZIONE IPOTESI
         generateHypothesis(currentRoom) {
             const pick = (list, known) => known || (list.length > 0 ? list[Math.floor(Math.random() * list.length)] : null);
             
@@ -129,7 +160,7 @@
             let w = pick(this.memory.weapons, this.knownSolution.w) || weapons[0];
             let r = currentRoom;
 
-            // Bluff (20%)
+            // Bluff (20% chance)
             if (Math.random() < 0.2) {
                 const mySuspects = this.hand.filter(c => suspects.includes(c));
                 const myWeapons = this.hand.filter(c => weapons.includes(c));
@@ -144,9 +175,10 @@
         }
     }
 
+    // Inizializzazione Giocatori
     const simPlayers = players.map((p, i) => new SimPlayer(p, suspects[i] || "Unknown"));
 
-    // Distribuzione
+    // Distribuzione Carte
     let pIdx = 0;
     while(deck.length > 0) {
         simPlayers[pIdx].hand.push(deck.pop());
@@ -154,7 +186,7 @@
     }
     simPlayers.forEach(p => p.initMemory());
 
-    // Setup Solver
+    // Configurazione Limiti Solver e Mano Eroe
     const baseCount = Math.floor((allCards.length - 3) / players.length);
     const remainder = (allCards.length - 3) % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
@@ -162,6 +194,7 @@
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
     heroPlayer.hand.forEach(c => setFact(c, HERO_NAME, 2));
 
+    // Gestione Posizione Pedine (Token)
     let tokenPositions = {}; 
     suspects.forEach(s => {
         const owner = simPlayers.find(p => p.character === s);
@@ -187,53 +220,237 @@
         }
     }
 
-    // --- 5. LOG AVVIO ---
-    storyLog("🕵️", "CLUEDO MATCH SIMULATOR", "font-size: 1.2em; font-weight: bold; background: #333; color: #4ade80;");
+
+    // ======================================================
+    // 5. START LOG
+    // ======================================================
+    storyLog("🕵️", "CLUEDO MATCH SIMULATOR", "font-size: 1.4em; font-weight: bold; background: #111; color: #4ade80; padding: 4px; border: 1px solid #4ade80;");
     storyLog("🤫", `SOLUZIONE REALE: [${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
-    storyLog("🃏", "DISTRIBUZIONE CARTE:", "color: #f472b6; font-weight: bold; margin-top: 5px;");
+    
+    console.group("🃏 Distribuzione Carte");
     simPlayers.forEach(p => {
         const isHero = p.name === HERO_NAME;
         const style = isHero ? "font-weight:bold; color: #10b981;" : "font-weight:bold; color: #fbbf24;";
-        console.log(`   %c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, style, "color: #e5e7eb;");
+        console.log(`%c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, style, "color: #e5e7eb;");
     });
-    console.log("---------------------------------------------------");
+    console.groupEnd();
 
-    // --- HELPER DI GIOCO ---
-    
-    // Gestione Accusa
+
+    // ======================================================
+    // 6. HELPER FASI DI GIOCO
+    // ======================================================
+
     function handleAccusation(player, accusation, turnCount) {
         if (!accusation) return false;
 
-        storyLog("🫵", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "color: red; font-weight: bold;");
+        storyLog("🫵", `ACCUSA DI ${player.name}: ${accusation.s}, ${accusation.w}, ${accusation.r}`, "color: #f87171; font-weight: bold;");
         
         const isWin = (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]);
         
         if (isWin) {
             if (player.name === HERO_NAME) {
-                storyLog("🏆", `VITTORIA! ${player.name} ha vinto in ${turnCount} turni.`, "background: green; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
+                storyLog("🏆", `VITTORIA! ${player.name} ha vinto in ${turnCount} turni.`, LogTheme.WIN);
             } else {
-                storyLog("💥", `SCONFITTA! ${player.name} ha risolto il caso in ${turnCount} turni.`, "background: red; color: white; font-weight: bold; border: 2px solid white; padding: 4px;");
+                storyLog("💥", `SCONFITTA! ${player.name} ha risolto il caso in ${turnCount} turni.`, LogTheme.FAIL);
             }
             return { gameOver: true };
         } else {
-            storyLog("💀", `ACCUSA ERRATA!`, "color: red; font-weight: bold;");
+            storyLog("💀", `ACCUSA ERRATA! ${player.name} eliminato.`, LogTheme.ERROR);
             player.isEliminated = true;
             return { gameOver: false };
         }
     }
 
-    // --- 6. GAME LOOP ---
+    // FASE 1: MOVIMENTO
+    function handleMovementPhase(player) {
+        const canStay = player.wasDragged;
+        player.wasDragged = false; // Reset flag
+        
+        // Log inizio turno
+        let headerTxt = `(Start: ${player.currentLocation})`;
+        if (canStay) headerTxt += " [DRAGGED]";
+        storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, LogTheme.HEADER);
+
+        // Check Epifania Pre-Movimento (se so già la soluzione, non mi muovo, accuso)
+        const preMoveSol = player.getSolutionAttempt();
+        if (preMoveSol) {
+            player.targetLocation = player.currentLocation;
+            player.squaresLeft = 0;
+            storyLog("🚨", `${player.name} conosce la soluzione e procede con l'accusa.`, LogTheme.WARN);
+            return; // Salta il movimento fisico
+        }
+
+        const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
+        
+        // --- CASO A: IN VIAGGIO (Corridoio) ---
+        if (!player.inRoom) {
+            player.squaresLeft -= dice;
+            if (player.squaresLeft <= 0) {
+                // Arrivato
+                updateTokenLocation(player.character, player.targetLocation);
+                storyLog("🏃", `Arriva in ${player.targetLocation} (Dadi: ${dice})`, LogTheme.MOVE);
+            } else {
+                // Ancora in viaggio
+                storyLog("👣", `Prosegue verso ${player.targetLocation} (Dadi: ${dice}, Mancano: ${player.squaresLeft})`, LogTheme.DICE);
+            }
+            return;
+        }
+
+        // --- CASO B: SCELTA STANZA ---
+        
+        // LOGICA HERO
+        if (player.name === HERO_NAME) {
+            mockElements['current-position'].value = player.currentLocation; 
+            let moves = calculateTacticalMoves(player.currentLocation);
+            
+            // Se sono stato trascinato, posso stare, altrimenti devo muovermi
+            if (!canStay) moves = moves.filter(m => m.room !== player.currentLocation);
+            
+            // Filtro mosse valide col dado
+            const valid = moves.filter(m => m.isCurrent || m.isSecret || m.dist <= dice);
+            const best = valid.length > 0 ? valid[0] : (moves[0] || null);
+
+            if (best) {
+                const isReachableNow = best.isCurrent || best.isSecret || best.dist <= dice;
+
+                if (isReachableNow) {
+                    player.targetLocation = best.room;
+                    updateTokenLocation(player.character, best.room);
+                    if (best.isSecret) storyLog("🚇", `Usa passaggio segreto -> ${best.room}`, LogTheme.MOVE);
+                    else if (!best.isCurrent) storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, LogTheme.MOVE);
+                    else storyLog("⚓️", "Resta nella stanza.", LogTheme.MOVE);
+                } else {
+                    // Tiro insufficiente: esco in corridoio
+                    player.targetLocation = best.room;
+                    player.inRoom = false;
+                    player.squaresLeft = best.dist - dice;
+                    storyLog("🎲", `Tiro basso (${dice}), esce verso ${best.room} (Mancano: ${player.squaresLeft})`, LogTheme.DICE);
+                }
+            }
+        } 
+        // LOGICA BOT
+        else {
+            if (canStay) {
+                player.targetLocation = player.currentLocation;
+                player.squaresLeft = 0;
+                storyLog("⚓️", "Resta nella stanza.", LogTheme.MOVE);
+            } else {
+                const dists = ROOM_DISTANCES[player.currentLocation];
+                let potential = Object.keys(dists).filter(r => r !== player.currentLocation);
+                const reachable = potential.filter(r => dists[r] === 0 || dists[r] <= dice);
+
+                if (reachable.length > 0) {
+                    // Bot sceglie a caso tra le raggiungibili (o preferisce quelle utili alla memoria)
+                    const useful = reachable.filter(r => player.memory.rooms.includes(r));
+                    const dest = useful.length > 0 
+                        ? useful[Math.floor(Math.random() * useful.length)] 
+                        : reachable[Math.floor(Math.random() * reachable.length)];
+                    
+                    player.squaresLeft = 0;
+                    player.targetLocation = dest;
+                    updateTokenLocation(player.character, dest);
+
+                    if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, LogTheme.MOVE);
+                    else storyLog("🏃", `Raggiunge ${dest} (Dadi: ${dice})`, LogTheme.MOVE);
+                } else {
+                    // Tiro basso -> Corridoio
+                    const dest = potential[Math.floor(Math.random() * potential.length)];
+                    player.targetLocation = dest;
+                    player.inRoom = false;
+                    player.squaresLeft = dists[dest] - dice;
+                    storyLog("🎲", `Tiro basso (${dice}), esce verso ${dest} (Mancano: ${player.squaresLeft})`, LogTheme.DICE);
+                }
+            }
+        }
+    }
+
+    // FASE 2: RISPOSTE AGLI INTERROGATORI
+    function handleResponsePhase(asker, hypothesis, askerIdx) {
+        let responder = null;
+        let cardShown = null;
+        
+        // Iteriamo sui giocatori in senso orario
+        for (let i = 1; i < players.length; i++) {
+            const checkIdx = (askerIdx + i) % players.length;
+            const checker = simPlayers[checkIdx];
+            const matches = checker.hand.filter(c => c === hypothesis.s || c === hypothesis.w || c === hypothesis.r);
+
+            if (matches.length > 0) {
+                responder = checker;
+                cardShown = matches[0]; 
+                storyLog("✋", `${responder.name} mostra ${cardShown} a ${asker.name}`, LogTheme.RESPONSE);
+                break;
+            } else {
+                storyLog("❌", `${checker.name} passa`, LogTheme.PASS);
+                setFact(hypothesis.s, checker.name, 1);
+                setFact(hypothesis.w, checker.name, 1);
+                setFact(hypothesis.r, checker.name, 1);
+            }
+        }
+
+        if (responder) {
+            if (asker.name === HERO_NAME) {
+                setFact(cardShown, responder.name, 2); 
+                storyLog("👀", `Hai visto: ${cardShown}`, LogTheme.HERO_INFO);
+            } else {
+                asker.eliminate(cardShown);
+            }
+            
+            // Se nessuno dei due sono io, registro il vincolo
+            if (responder.name !== HERO_NAME && asker.name !== HERO_NAME) {
+                addConstraint(responder.name, [hypothesis.s, hypothesis.w, hypothesis.r]);
+            }
+        } else {
+            storyLog("😱", `Nessuno può smentire!`, LogTheme.WARN);
+            if (asker.name === HERO_NAME) {
+                [hypothesis.s, hypothesis.w, hypothesis.r].forEach(c => {
+                    if (grid[c][HERO_NAME] !== 2) grid[c].SOL = 2;
+                });
+            } else {
+                asker.analyzeNoResponse(hypothesis);
+                if (asker.hasFullSolution()) {
+                    storyLog("💡", `${asker.name} ha capito tutto!`, LogTheme.WARN);
+                } else {
+                    storyLog("🤔", `${asker.name} ha dedotto una parte della soluzione...`, LogTheme.WARN);
+                }
+            }
+        }
+    }
+
+    // CHECK VITTORIA SOLVER (Solo UI)
+    let foundParts = { s: false, w: false, r: false };
+    let solverWonLog = false;
+    function checkSolverProgress() {
+        try { runSolver(); } catch(e) {}
+
+        const solS = suspects.find(c => grid[c] && grid[c].SOL === 2);
+        const solW = weapons.find(c => grid[c] && grid[c].SOL === 2);
+        const solR = rooms.find(c => grid[c] && grid[c].SOL === 2);
+
+        if (solS && !foundParts.s) { foundParts.s = true; storyLog("🧩", `IL SOLVER HA DEDOTTO IL COLPEVOLE: ${solS}`, LogTheme.SOLVER); }
+        if (solW && !foundParts.w) { foundParts.w = true; storyLog("🧩", `IL SOLVER HA DEDOTTO L'ARMA: ${solW}`, LogTheme.SOLVER); }
+        if (solR && !foundParts.r) { foundParts.r = true; storyLog("🧩", `IL SOLVER HA DEDOTTO LA STANZA: ${solR}`, LogTheme.SOLVER); }
+
+        if (!solverWonLog && foundParts.s && foundParts.w && foundParts.r) {
+            solverWonLog = true;
+            storyLog("✅", `IL SOLVER HA RISOLTO IL CASO: ${solS}, ${solW}, ${solR}`, LogTheme.WIN);
+        }
+    }
+
+
+    // ======================================================
+    // 7. GAME LOOP PRINCIPALE
+    // ======================================================
     let gameOver = false;
     let turnCount = 0;
     let currentPlayerIdx = Math.floor(Math.random() * players.length);
-    let foundParts = { s: false, w: false, r: false };
-    let solverWonLog = false;
 
     storyLog("🎲", `Dadi lanciati! Inizia: ${players[currentPlayerIdx]}`, "color: #a5b4fc;");
 
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
         const currentPlayer = simPlayers[currentPlayerIdx];
+
         if (currentPlayer.isEliminated) {
             currentPlayerIdx = (currentPlayerIdx + 1) % players.length;
             continue;
@@ -241,206 +458,46 @@
 
         if (SIM_SPEED > 0) await new Promise(r => setTimeout(r, SIM_SPEED));
 
-        const canStay = currentPlayer.wasDragged;
-        currentPlayer.wasDragged = false;
-        
-        let moveLogTxt = `(Start: ${currentPlayer.currentLocation})`;
-        if (canStay) moveLogTxt += " [DRAGGED]";
-        storyLog("▶️", `T${turnCount}: ${currentPlayer.name} ${moveLogTxt}`, "font-weight: bold; color: #fbbf24; margin-top: 10px; border:none;");
+        // 1. MOVIMENTO
+        handleMovementPhase(currentPlayer);
 
-        // 1. CHECK SOLUZIONE PRE-MOVE
-        const preMoveSol = currentPlayer.getSolutionAttempt();
-        if (preMoveSol) {
-            currentPlayer.targetLocation = currentPlayer.currentLocation;
-            currentPlayer.squaresLeft = 0;
-            storyLog("🚨", `${currentPlayer.name} conosce la soluzione e procede con l'accusa.`, "color: #fcd34d;");
-        } else {
-            // 2. MOVIMENTO
-            const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
-            
-            // --- CASO A: SEI NEL CORRIDOIO (Stai viaggiando) ---
-            if (!currentPlayer.inRoom) {
-                currentPlayer.squaresLeft -= dice;
-
-                if (currentPlayer.squaresLeft <= 0) {
-                    // ARRIVATO A DESTINAZIONE
-                    updateTokenLocation(currentPlayer.character, currentPlayer.targetLocation);
-                    storyLog("🏃", `Arriva in ${currentPlayer.targetLocation} (Dadi: ${dice})`, "color: #d1d5db;");
-                    // Nota: Essendo arrivato, inRoom diventa true, ma siamo dentro l'IF del corridoio,
-                    // quindi saltiamo il blocco "ELSE" qui sotto. Niente turno extra!
-                } else {
-                    // ANCORA IN VIAGGIO
-                    storyLog("👣", `Prosegue verso ${currentPlayer.targetLocation} (Dadi: ${dice}, Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
-                }
-            } 
-            
-            // --- CASO B: SEI IN UNA STANZA (Decidi dove andare) ---
-            else {
-                // LOGICA HERO
-                if (currentPlayer.name === HERO_NAME) {
-                    mockElements['current-position'].value = currentPlayer.currentLocation; 
-                    let moves = calculateTacticalMoves(currentPlayer.currentLocation);
-                    if (!canStay) moves = moves.filter(m => m.room !== currentPlayer.currentLocation);
-                    
-                    // Filtra solo le mosse valide col dado attuale
-                    const valid = moves.filter(m => m.isCurrent || m.isSecret || m.dist <= dice);
-                    
-                    // Se non raggiungo nulla, prendo la mossa migliore ma vado in corridoio
-                    const best = valid.length > 0 ? valid[0] : (moves[0] || null);
-
-                    if (best) {
-                        const isReachableNow = best.isCurrent || best.isSecret || best.dist <= dice;
-
-                        if (isReachableNow) {
-                            // Raggiungo subito la destinazione
-                            currentPlayer.targetLocation = best.room;
-                            updateTokenLocation(currentPlayer.character, best.room);
-                            if (best.isSecret) storyLog("🚇", `Usa passaggio segreto -> ${best.room}`, "color: #9ca3af;");
-                            else if (!best.isCurrent) storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, "color: #d1d5db;");
-                            else storyLog("⚓️", "Resta nella stanza.", "color: #d1d5db;");
-                        } else {
-                            // Tiro insufficiente: Esco in corridoio
-                            currentPlayer.targetLocation = best.room;
-                            currentPlayer.inRoom = false; // Esco dalla stanza
-                            currentPlayer.squaresLeft = best.dist - dice; // Sottraggo il dado
-                            storyLog("🎲", `Tiro basso (${dice}), esce verso  ${best.room} (Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
-                        }
-                    }
-                } 
-                // LOGICA BOT
-                else {
-                    if (canStay) {
-                        currentPlayer.targetLocation = currentPlayer.currentLocation;
-                        currentPlayer.squaresLeft = 0;
-                        storyLog("⚓️", "Resta nella stanza.", "color: #d1d5db;");
-                    } else {
-                        const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
-                        let potential = Object.keys(dists).filter(r => r !== currentPlayer.currentLocation);
-                        
-                        // Stanze raggiungibili SUBITO
-                        const reachable = potential.filter(r => dists[r] === 0 || dists[r] <= dice);
-
-                        if (reachable.length > 0) {
-                            // Il bot sceglie una stanza raggiungibile (priorità alla memoria)
-                            const useful = reachable.filter(r => currentPlayer.memory.rooms.includes(r));
-                            const dest = useful.length > 0 
-                                ? useful[Math.floor(Math.random() * useful.length)] 
-                                : reachable[Math.floor(Math.random() * reachable.length)];
-                            
-                            currentPlayer.squaresLeft = 0;
-                            currentPlayer.targetLocation = dest;
-                            updateTokenLocation(currentPlayer.character, dest);
-
-                            if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, "color: #9ca3af;");
-                            else storyLog("🏃", `Raggiunge ${dest} (Dadi: ${dice})`, "color: #d1d5db;");
-                        } else {
-                            // TIRO BASSO: Deve uscire nel corridoio
-                            const dest = potential[Math.floor(Math.random() * potential.length)];
-                            currentPlayer.targetLocation = dest;
-                            
-                            currentPlayer.inRoom = false; // Esco!
-                            currentPlayer.squaresLeft = dists[dest] - dice; // Sottraggo il dado
-                            
-                            storyLog("🎲", `Tiro basso (${dice}), esce verso ${dest} (Mancano: ${currentPlayer.squaresLeft})`, "color: #6b7280;");
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. AZIONE
+        // 2. AZIONE (Se in stanza)
         if (currentPlayer.inRoom) {
             
-            // ACCUSA
+            // A. TENTATIVO ACCUSA (Epifania o calcolo)
             const solAttempt = currentPlayer.getSolutionAttempt();
             const res = handleAccusation(currentPlayer, solAttempt, turnCount);
             if (res && res.gameOver) { gameOver = true; break; }
 
-            // IPOTESI
+            // B. FORMULAZIONE IPOTESI
             let hypothesis = { s: null, w: null, r: currentPlayer.currentLocation };
+            
             if (currentPlayer.name === HERO_NAME) {
                 const sug = generateHypothesisForRoom(currentPlayer.currentLocation);
                 hypothesis.s = sug.suspect; hypothesis.w = sug.weapon;
-                storyLog("🧠", `Indagine Hero: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, "color: #93c5fd");
+                storyLog("🧠", `Indagine Hero: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, LogTheme.HYPOTHESIS);
             } else {
                 const h = currentPlayer.generateHypothesis(currentPlayer.currentLocation);
                 hypothesis.s = h.s; hypothesis.w = h.w;
-                storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, "color: #93c5fd;");
+                storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, LogTheme.HYPOTHESIS);
             }
 
+            // Trascinamento del sospettato nella stanza corrente
             if (tokenPositions[hypothesis.s] !== currentPlayer.currentLocation) {
                 updateTokenLocation(hypothesis.s, currentPlayer.currentLocation, true);
             }
 
-            // RISPOSTE
-            let responder = null;
-            let cardShown = null;
-            
-            for (let i = 1; i < players.length; i++) {
-                const checkIdx = (currentPlayerIdx + i) % players.length;
-                const checker = simPlayers[checkIdx];
-                const matches = checker.hand.filter(c => c === hypothesis.s || c === hypothesis.w || c === hypothesis.r);
+            // C. FASE RISPOSTE
+            handleResponsePhase(currentPlayer, hypothesis, currentPlayerIdx);
 
-                if (matches.length > 0) {
-                    responder = checker;
-                    cardShown = matches[0]; 
-                    storyLog("✋", `${responder.name} mostra ${cardShown} a ${currentPlayer.name}`, "color: #fca5a5;");
-                    break;
-                } else {
-                    storyLog("❌", `${checker.name} passa`, "color: #4b5563;");
-                    setFact(hypothesis.s, checker.name, 1);
-                    setFact(hypothesis.w, checker.name, 1);
-                    setFact(hypothesis.r, checker.name, 1);
-                }
-            }
+            // D. ESECUZIONE SOLVER
+            checkSolverProgress();
 
-            if (responder) {
-                if (currentPlayer.name === HERO_NAME) {
-                    setFact(cardShown, responder.name, 2); 
-                    storyLog("👀", `Hai visto: ${cardShown}`, "color: #bef264");
-                } else {
-                    currentPlayer.eliminate(cardShown);
-                }
-                
-                if (responder.name !== HERO_NAME && currentPlayer.name !== HERO_NAME) {
-                    addConstraint(responder.name, [hypothesis.s, hypothesis.w, hypothesis.r]);
-                }
-            } else {
-                storyLog("😱", `Nessuno può smentire!`, "color: #f472b6");
-                if (currentPlayer.name === HERO_NAME) {
-                    [hypothesis.s, hypothesis.w, hypothesis.r].forEach(c => {
-                        if (grid[c][HERO_NAME] !== 2) grid[c].SOL = 2;
-                    });
-                } else {
-                    currentPlayer.analyzeNoResponse(hypothesis);
-                    if (currentPlayer.hasFullSolution()) {
-                        storyLog("💡", `${currentPlayer.name} ha capito tutto!`, "color: #fcd34d;");
-                    } else {
-                        storyLog("🤔", `${currentPlayer.name} ha dedotto una parte della soluzione...`, "color: #fcd34d;");
-                    }
-                }
-            }
-
-            try { runSolver(); } catch(e) {}
-
-            // CHECK VISIVO SOLVER
-            const solS = suspects.find(c => grid[c] && grid[c].SOL === 2);
-            const solW = weapons.find(c => grid[c] && grid[c].SOL === 2);
-            const solR = rooms.find(c => grid[c] && grid[c].SOL === 2);
-
-            if (solS && !foundParts.s) { foundParts.s = true; storyLog("🧩", `IL SOLVER HA DEDOTTO IL COLPEVOLE: ${solS}`, "color: #10b981; font-weight: bold;"); }
-            if (solW && !foundParts.w) { foundParts.w = true; storyLog("🧩", `IL SOLVER HA DEDOTTO L'ARMA: ${solW}`, "color: #10b981; font-weight: bold;"); }
-            if (solR && !foundParts.r) { foundParts.r = true; storyLog("🧩", `IL SOLVER HA DEDOTTO LA STANZA: ${solR}`, "color: #10b981; font-weight: bold;"); }
-
-            if (!solverWonLog && foundParts.s && foundParts.w && foundParts.r) {
-                solverWonLog = true;
-                storyLog("✅", `IL SOLVER HA RISOLTO IL CASO: ${solS}, ${solW}, ${solR}`, "background: #fff; color: #000; font-weight: bold; border: 2px solid #10b981; padding: 4px;");
-            }
-
-            // CHECK EPIFANIA IMMEDIATA
+            // E. CHECK EPIFANIA IMMEDIATA (Post-Risposta)
+            // Se ho appena scoperto l'ultimo pezzo, accuso subito nello stesso turno
             const postMoveSol = currentPlayer.getSolutionAttempt();
             if (postMoveSol) {
-                storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, "color: #fcd34d;");
+                storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, LogTheme.WARN);
                 const res = handleAccusation(currentPlayer, postMoveSol, turnCount);
                 if (res && res.gameOver) { gameOver = true; break; }
             }
@@ -449,5 +506,6 @@
         currentPlayerIdx = (currentPlayerIdx + 1) % players.length;
     }
 
-    if (!gameOver) storyLog("⌛", "FINE (Limite Turni)", "color: red;");
+    if (!gameOver) storyLog("⌛", "FINE (Limite Turni)", LogTheme.FAIL);
+
 })();
