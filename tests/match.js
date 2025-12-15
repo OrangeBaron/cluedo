@@ -1,6 +1,6 @@
 // === CLUEDO REALISTIC MATCH SIMULATOR ===
 
-(async function runRealisticSimulation() {
+await (async function runRealisticSimulation() {
 
     // ======================================================
     // 1. CONFIGURAZIONE & TEMI LOG
@@ -73,12 +73,12 @@
     const selectedOpponents = OPPONENT_POOL.slice(0, DESIRED_OPPONENTS);
     let seatOrder = [HERO_NAME, ...selectedOpponents].sort(() => Math.random() - 0.5);
 
-    players = seatOrder; // Globale di solver.js
-    myName = HERO_NAME;  // Globale di solver.js
-    grid = {};           // Globale di solver.js
-    constraints = [];    // Globale di solver.js
-    history = [];        // Globale di solver.js
-    limits = {};         // Globale di solver.js
+    players = seatOrder;
+    myName = HERO_NAME;
+    grid = {};
+    constraints = [];
+    history = [];
+    limits = {};
     isSimulating = false;
 
     // Init Griglia Solver
@@ -108,7 +108,7 @@
             this.targetLocation = null;
             this.squaresLeft = 0;
             this.inRoom = true; 
-            this.wasDragged = false; // Flag se spostato da un'ipotesi avversaria
+            this.wasDragged = false;
             
             this.knownSolution = { s: null, w: null, r: null };
             this.memory = { suspects: [...suspects], weapons: [...weapons], rooms: [...rooms] };
@@ -225,14 +225,19 @@
     // 5. START LOG
     // ======================================================
     storyLog("🕵️", "CLUEDO MATCH SIMULATOR", "font-size: 1.4em; font-weight: bold; background: #111; color: #4ade80; padding: 4px; border: 1px solid #4ade80;");
-    storyLog("🤫", `SOLUZIONE REALE: [${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
+
+    console.groupCollapsed("🤫 Soluzione %c(Clicca per mostrare)", "color:#6b7280;");
+    console.log(`%c[${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
+    console.groupEnd();
     
     console.group("🃏 Distribuzione Carte");
+    console.log(`%c${HERO_NAME} (${heroPlayer.hand.length}): %c${heroPlayer.hand.join(", ")}`, LogTheme.SOLVER, "color: #e5e7eb;");
+    console.groupCollapsed("Altri Giocatori %c(Clicca per mostrare)", "color:#6b7280;");
     simPlayers.forEach(p => {
-        const isHero = p.name === HERO_NAME;
-        const style = isHero ? "font-weight:bold; color: #10b981;" : "font-weight:bold; color: #fbbf24;";
-        console.log(`%c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, style, "color: #e5e7eb;");
+        if (p.name === HERO_NAME) return;
+        console.log(`%c${p.name} (${p.hand.length}): %c${p.hand.join(", ")}`, LogTheme.HEADER, "color: #e5e7eb;");
     });
+    console.groupEnd();
     console.groupEnd();
 
 
@@ -267,9 +272,10 @@
         player.wasDragged = false; // Reset flag
         
         // Log inizio turno
+        let style = (player.name === HERO_NAME) ? LogTheme.SOLVER : LogTheme.HEADER;
         let headerTxt = `(Start: ${player.currentLocation})`;
         if (canStay) headerTxt += " [DRAGGED]";
-        storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, LogTheme.HEADER);
+        storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, style);
 
         // Check Epifania Pre-Movimento (se so già la soluzione, non mi muovo, accuso)
         const preMoveSol = player.getSolutionAttempt();
@@ -377,8 +383,10 @@
 
             if (matches.length > 0) {
                 responder = checker;
-                cardShown = matches[0]; 
-                storyLog("✋", `${responder.name} mostra ${cardShown} a ${asker.name}`, LogTheme.RESPONSE);
+                cardShown = matches[0];
+                console.groupCollapsed(`✋ %c${responder.name} mostra una carta a ${asker.name}`, LogTheme.RESPONSE);
+                console.log(`%cCarta mostrata: %c${cardShown}`, LogTheme.RESPONSE, "color: #e5e7eb;");
+                console.groupEnd();
                 break;
             } else {
                 storyLog("❌", `${checker.name} passa`, LogTheme.PASS);
