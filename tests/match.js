@@ -18,10 +18,10 @@ await (async function runRealisticSimulation() {
         MOVE:       "color: #38bdf8;", // Ciano
         DICE:       "color: #94a3b8;", // Grigio bluastro
         HYPOTHESIS: "color: #c084fc;", // Viola chiaro
-        RESPONSE:   "color: #f472b6; font-weight: bold;", // Rosa
+        RESPONSE:   "color: #f472b6;", // Rosa
         PASS:       "color: #6b7280;", // Grigio scuro
-        HERO_INFO:  "color: #bef264; font-weight: bold;", // Lime
-        SOLVER:     "color: #10b981; font-weight: bold;", // Smeraldo
+        HERO:       "color: #10b981; font-weight: bold;", // Smeraldo
+        SOLVER:     "color: #bef264; font-weight: bold;", // Lime
         WIN:        "background: #065f46; color: white; font-weight: bold; padding: 4px; border: 1px solid #34d399;",
         FAIL:       "background: #991b1b; color: white; font-weight: bold; padding: 4px; border: 1px solid #f87171;",
         WARN:       "color: #fcd34d;", // Giallo allerta
@@ -231,7 +231,7 @@ await (async function runRealisticSimulation() {
     console.groupEnd();
     
     console.group("🃏 Distribuzione Carte");
-    console.log(`%c${HERO_NAME} (${heroPlayer.hand.length}): %c${heroPlayer.hand.join(", ")}`, LogTheme.SOLVER, "color: #e5e7eb;");
+    console.log(`%c${HERO_NAME} (${heroPlayer.hand.length}): %c${heroPlayer.hand.join(", ")}`, LogTheme.HERO, "color: #e5e7eb;");
     console.groupCollapsed("Altri Giocatori %c(Clicca per mostrare)", "color:#6b7280;");
     simPlayers.forEach(p => {
         if (p.name === HERO_NAME) return;
@@ -272,9 +272,8 @@ await (async function runRealisticSimulation() {
         player.wasDragged = false; // Reset flag
         
         // Log inizio turno
-        let style = (player.name === HERO_NAME) ? LogTheme.SOLVER : LogTheme.HEADER;
-        let headerTxt = `(Start: ${player.currentLocation})`;
-        if (canStay) headerTxt += " [DRAGGED]";
+        let style = (player.name === HERO_NAME) ? LogTheme.HERO : LogTheme.HEADER;
+        let headerTxt = `(Posizione: ${player.currentLocation}${canStay ? ", può restare" : ""})`;
         storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, style);
 
         // Check Epifania Pre-Movimento (se so già la soluzione, non mi muovo, accuso)
@@ -384,7 +383,7 @@ await (async function runRealisticSimulation() {
             if (matches.length > 0) {
                 responder = checker;
                 cardShown = matches[0];
-                console.groupCollapsed(`✋ %c${responder.name} mostra una carta a ${asker.name}`, LogTheme.RESPONSE);
+                console.groupCollapsed(`✋ %c${responder.name} mostra una carta a ${asker.name} %c(Mostra)`, LogTheme.RESPONSE, "color:#6b7280;");
                 console.log(`%cCarta mostrata: %c${cardShown}`, LogTheme.RESPONSE, "color: #e5e7eb;");
                 console.groupEnd();
                 break;
@@ -399,7 +398,7 @@ await (async function runRealisticSimulation() {
         if (responder) {
             if (asker.name === HERO_NAME) {
                 setFact(cardShown, responder.name, 2); 
-                storyLog("👀", `Hai visto: ${cardShown}`, LogTheme.HERO_INFO);
+                storyLog("👀", `Hai visto: ${cardShown}`, LogTheme.HERO);
             } else {
                 asker.eliminate(cardShown);
             }
