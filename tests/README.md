@@ -45,7 +45,7 @@ Ecco a cosa serve ogni file e cosa aspettarsi dall'output:
 
 ### 1\. ```logic.js``` (Unit Tests)
 
-Questo è il test fondamentale per il **motore deduttivo (```solver.js```). Verifica che la logica matematica funzioni correttamente senza errori.
+Questo è il test fondamentale per il **motore deduttivo** (```solver.js```). Verifica che la logica matematica funzioni correttamente senza errori.
 
 *   **Cosa fa:** Resetta il gioco e simula scenari specifici (es. "Se Tizio ha mostrato Carta X, allora Caio non può avere Carta Y").
     
@@ -66,7 +66,7 @@ Questo è il test fondamentale per il **motore deduttivo (```solver.js```). Veri
 
 ### 2\. ```strategy.js``` (Tactical Tests)
 
-Testa il **Navigatore Tattico (```tactics.js```), ovvero l'assistente che ti suggerisce dove andare e cosa chiedere.
+Testa il **Navigatore Tattico** (```tactics.js```), ovvero l'assistente che ti suggerisce dove andare e cosa chiedere.
 
 *   **Cosa fa:** Crea situazioni di gioco simulate (es. "Sei in Cucina, ti manca solo l'arma") e controlla se il suggerimento dato dal sistema è quello ottimale.
     
