@@ -31,35 +31,38 @@ Mentre i tuoi amici faticano a ricordare chi ha mostrato cosa tre turni fa, ques
 * **🧭 Navigatore Tattico:** Un assistente strategico che analizza la mappa e ti consiglia la stanza migliore da raggiungere. Suggerisce l'ipotesi ottimale da formulare (es. "Usa il Pugnale come scudo per trovare Mustard") bilanciando la necessità di informazioni e il rischio di svelare la tua mano.
 * **🔮 Deep Scan:** Quando la logica standard si ferma, il sistema avvia una simulazione in background. Testa scenari ipotetici ("Se Tizio avesse questa carta...") per trovare contraddizioni matematiche e forzare deduzioni impossibili da vedere a occhio nudo.
 * **🚫 Gestione Vincoli:** Se un giocatore mostra una carta a qualcun altro, il sistema ricorda il gruppo di possibilità e lo risolve automaticamente appena ottiene nuove informazioni.
-* **✏️ Editor Turni:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa o inserire dati manualmente.
-* **📥 Esportazione Log:** Scarica un file di testo con l'intera cronologia delle mosse e lo stato finale della griglia per analizzare la partita (o dimostrare la tua ragione) post-mortem.
+* **↩️ Sistema di Undo:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa istantaneamente per correggere l'errore senza rompere la logica della partita.
+* **🧪 Suite di Test & Simulazioni:** Include un motore di testing avanzato (accessibile da console) per eseguire unit test sulla logica, simulazioni di partite complete (Bot vs Bot) e analisi Monte Carlo per verificare la robustezza dell'algoritmo.
+* **📥 Esportazione Log:** Scarica un file di testo con l'intera cronologia delle mosse e lo stato finale della griglia per analizzare la partita post-mortem.
 * **📱 Mobile First:** Interfaccia "Dark Mode" ottimizzata per smartphone, così puoi tenerlo nascosto sotto il tavolo.
-* **🤫 Rilevatore di Bluff:** Ti avvisa se qualcuno sta facendo una domanda su carte che possiede già.
+* **🤫 Rilevatore di Bluff:** Ti avvisa in tempo reale se qualcuno sta facendo una domanda su carte che possiede già.
 
 ## 🚀 Come usarlo
 
-[Clicca qui](https://orangebaron.github.io/cluedo/)
+[Clicca qui](https://orangebaron.github.io/cluedo/) per aprire l'applicazione web.
 
 ## 📖 Guida Rapida
 
-1.  **Setup:** Inserisci i nomi dei giocatori.
-2.  **La tua mano:** Seleziona le carte che possiedi.
-3.  **Gioco:**
-    * Inserisci chi fa l'ipotesi.
-    * Seleziona Sospettato, Arma e Stanza.
-    * Inserisci chi smentisce (chi mostra la carta).
-    * Se è il tuo turno, specifica *quale* carta ti è stata mostrata.
-4.  **Strategia:** Consulta il box "Navigatore Tattico" per sapere dove andare e cosa chiedere nel prossimo turno.
+1.  **Setup:** Inserisci i nomi dei giocatori nell'ordine di gioco.
+2.  **La tua mano:** Seleziona le carte che possiedi realmente.
+3.  **Registra i Turni:**
+    * Indica chi sta facendo l'ipotesi.
+    * Seleziona le 3 carte chiamate (Sospettato, Arma, Stanza).
+    * Indica chi ha mostrato una carta per smentire (o se tutti hanno passato).
+    * *Nota:* Se tocca a te e qualcuno ti mostra una carta, il sistema ti chiederà specificamente **quale** carta hai visto.
+4.  **Strategia:** Consulta il box "Navigatore Tattico" in basso per sapere dove andare e cosa chiedere nel tuo prossimo turno.
 5.  **Vittoria:** Guarda la griglia riempirsi di ✅ verdi e ❌ rosse finché la soluzione non appare evidenziata in oro 🏆.
 
 ## 🛠️ Tecnologie & Logica
 
 Il codice è scritto in **Vanilla JS** (nessun framework pesante). La logica di risoluzione si basa su:
 * **Esclusione Diretta:** Se P1 ha la carta X, nessun altro ce l'ha.
-* **Insiemi di Vincoli:** Quando P1 mostra una carta a P2 per la domanda {A, B, C}, il sistema sa che P1 possiede almeno una tra A, B o C. Se in seguito scopriamo che P1 non ha né A né B, il sistema deduce che ha C.
+* **Insiemi di Vincoli:** Quando P1 mostra una carta a P2 per la domanda {A, B, C}, il sistema sa che P1 possiede almeno una tra A, B o C.
 * **Principio dei Cassetti (Pigeonhole):** Se sappiamo che P1 ha 3 carte in totale e ne abbiamo già identificate 3, tutte le altre carte del mazzo sono segnate come "NON possedute" da P1.
-* **Reductio ad Absurdum (Deep Scan):** Il solver esegue tentativi "brute-force" intelligenti sulle celle incerte. Se ipotizzando che un giocatore abbia una certa carta si genera un errore logico a catena (es. un altro giocatore finisce con carte negative o vincoli impossibili), il sistema scarta quell'ipotesi con certezza assoluta.
-* **Scoring Euristico (Tactics):** Il Navigatore Tattico utilizza una matrice di adiacenza delle stanze (Floyd-Warshall) e assegna un punteggio dinamico ad ogni mossa possibile. Il punteggio premia le stanze raggiungibili rapidamente che permettono di testare le categorie con più incognite (es. "Caccia al Sospettato" se le Armi sono quasi tutte note), suggerendo di usare le proprie carte come "scudo" per bluffare.
+* **Reductio ad Absurdum (Deep Scan):** Il solver esegue tentativi "brute-force" intelligenti sulle celle incerte per trovare contraddizioni a catena.
+* **Scoring Euristico (Tactics):** Il Navigatore Tattico utilizza una matrice di adiacenza delle stanze (Floyd-Warshall) per calcolare i percorsi ottimali e massimizzare il guadagno informativo di ogni turno.
+
+> 🛠 **Developer Mode:** Nella cartella `/tests` sono presenti script (`montecarlo.js`, `match.js`) eseguibili nella console del browser per simulare migliaia di partite e validare le modifiche all'algoritmo.
 
 ## 🤝 Contribuire
 
