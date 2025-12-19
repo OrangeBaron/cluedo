@@ -31,6 +31,7 @@ function initPathfinding() {
         });
     });
 
+    // Floyd-Warshall Algorithm for All-Pairs Shortest Paths
     rooms.forEach(k => {
         rooms.forEach(i => {
             rooms.forEach(j => {
@@ -43,7 +44,7 @@ function initPathfinding() {
     });
 }
 
-// --- STATISTICAL HELPER ---
+// --- STATISTICAL HELPERS ---
 
 /**
  * Calcola la "Densità" di una carta ignota.
@@ -70,6 +71,19 @@ function getCardDensity(card) {
     return density;
 }
 
+/**
+ * Calcola il "Rejection Count" (Quanti giocatori hanno detto NO a questa carta).
+ * Usato per la strategia "Ghost Protocol".
+ */
+function getRejectionCount(card) {
+    if (!card || !grid[card]) return 0;
+    let count = 0;
+    players.forEach(p => {
+        if (p !== myName && grid[card][p] === 1) count++; // 1 = NON CE L'HA
+    });
+    return count;
+}
+
 // --- TACTICAL ENGINE ---
 
 function generateHypothesisForRoom(targetRoom, isLateGame = false) {
@@ -80,96 +94,113 @@ function generateHypothesisForRoom(targetRoom, isLateGame = false) {
         if (!arr || arr.length === 0) return null;
         // Ordina per densità decrescente
         const sorted = [...arr].sort((a, b) => getCardDensity(b) - getCardDensity(a));
-        // Prendi la migliore (o una delle migliori se pari)
         return sorted[0];
     };
 
     const unknownS = suspects.filter(c => grid[c].SOL === 0);
     const unknownW = weapons.filter(c => grid[c].SOL === 0);
     
+    // Carte sicure da usare come "Scudo" (Shielding)
     const safeS = suspects.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
     const safeW = weapons.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
 
-    let bestS, bestW;
+    let bestS, bestW, strategyType = "Standard";
 
-    const pickShield = (safeList, unknownList, allList) => {
-        if (safeList.length > 0) return pickRandom(safeList);
-        if (unknownList.length > 0) return pickBestDensity(unknownList); // Fallback intelligente
-        return pickRandom(allList);
-    };
+    // --- GHOST PROTOCOL (NEW STRATEGY) ---
+    // Cerca carte che sono già state smentite da molti giocatori ma non sono ancora risolte.
+    // L'obiettivo è "chiudere il cerchio" (Intersection Targeting).
+    
+    const ghostS = unknownS.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
+    const ghostW = unknownW.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
+    
+    const activeOpponents = players.length - 1; 
+    const rejectionThreshold = Math.max(1, Math.floor(activeOpponents / 2)); 
 
-    const pickTarget = (unknownList, allList) => {
-        if (unknownList.length > 0) return pickBestDensity(unknownList); // USA LA DENSITÀ!
-        return pickRandom(allList); 
-    };
+    // CASO 1: GHOST SUSPECT FOUND
+    // Se c'è un sospettato molto smentito e abbiamo un'arma sicura da usare come scudo
+    if (ghostS && getRejectionCount(ghostS) >= rejectionThreshold && safeW.length > 0) {
+        bestS = ghostS;
+        bestW = safeW[Math.floor(Math.random() * safeW.length)]; // Usa scudo arma
+        strategyType = "👻 Sospettato Fantasma";
+    }
+    // CASO 2: GHOST WEAPON FOUND
+    // Se c'è un'arma molto smentita e abbiamo un sospettato sicuro da usare come scudo
+    else if (ghostW && getRejectionCount(ghostW) >= rejectionThreshold && safeS.length > 0) {
+        bestS = safeS[Math.floor(Math.random() * safeS.length)]; // Usa scudo sospettato
+        bestW = ghostW;
+        strategyType = "👻 Arma Fantasma";
+    }
+    // CASO 3: LOGICA CLASSICA (Fallback)
+    else {
+        const pickTarget = (unknownList, allList) => {
+            if (unknownList.length > 0) return pickBestDensity(unknownList); // USA LA DENSITÀ
+            return pickRandom(allList); 
+        };
 
-    const isRoomSafe = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
+        const pickShield = (safeList, unknownList, allList) => {
+            if (safeList.length > 0) return pickRandom(safeList);
+            if (unknownList.length > 0) return pickBestDensity(unknownList);
+            return pickRandom(allList);
+        };
 
-    // LOGICA DI SELEZIONE
-    if (isLateGame) {
-        const needS = unknownS.length > 0;
-        const needW = unknownW.length > 0;
+        const isRoomSafe = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
 
-        if (needS && needW) {
+        if (isLateGame) {
+            const needS = unknownS.length > 0;
+            const needW = unknownW.length > 0;
+
+            if (needS && needW) {
+                if (isRoomSafe) {
+                    bestS = pickTarget(unknownS, suspects);
+                    bestW = pickTarget(unknownW, weapons);
+                    strategyType = "Aggressiva";
+                } else {
+                    // Mix difensivo
+                    if (Math.random() < 0.5 && safeS.length > 0) {
+                        bestS = pickShield(safeS, unknownS, suspects);
+                        bestW = pickTarget(unknownW, weapons);
+                        strategyType = "Bilanciata (S)";
+                    } else {
+                        bestS = pickTarget(unknownS, suspects);
+                        bestW = pickShield(safeW, unknownW, weapons);
+                        strategyType = "Bilanciata (W)";
+                    }
+                }
+            } else if (needS) {
+                bestS = pickTarget(unknownS, suspects);
+                bestW = pickShield(safeW, unknownW, weapons);
+                strategyType = "Cecchino (S)";
+            } else if (needW) {
+                bestS = pickShield(safeS, unknownS, suspects);
+                bestW = pickTarget(unknownW, weapons);
+                strategyType = "Cecchino (W)";
+            } else {
+                bestS = pickShield(safeS, unknownS, suspects);
+                bestW = pickShield(safeW, unknownW, weapons);
+                strategyType = "Bluff Totale";
+            }
+        } else {
+            // EARLY GAME
             if (isRoomSafe) {
                 bestS = pickTarget(unknownS, suspects);
                 bestW = pickTarget(unknownW, weapons);
+                strategyType = "Aggressiva (Early)";
             } else {
-                // Mix difensivo
-                if (Math.random() < 0.5 && safeS.length > 0) {
+                if (Math.random() < 0.5) {
                     bestS = pickShield(safeS, unknownS, suspects);
                     bestW = pickTarget(unknownW, weapons);
+                    strategyType = "Bilanciata";
                 } else {
                     bestS = pickTarget(unknownS, suspects);
                     bestW = pickShield(safeW, unknownW, weapons);
+                    strategyType = "Bilanciata";
                 }
-            }
-        } 
-        else if (needS) {
-            bestS = pickTarget(unknownS, suspects);
-            bestW = pickShield(safeW, unknownW, weapons);
-        } 
-        else if (needW) {
-            bestS = pickShield(safeS, unknownS, suspects);
-            bestW = pickTarget(unknownW, weapons);
-        } 
-        else {
-            bestS = pickShield(safeS, unknownS, suspects);
-            bestW = pickShield(safeW, unknownW, weapons);
-        }
-    } 
-    else {
-        // EARLY GAME: Caccia grossa alle carte dense
-        if (isRoomSafe) {
-            bestS = pickTarget(unknownS, suspects);
-            bestW = pickTarget(unknownW, weapons);
-        } else {
-            // Bilanciamento
-            if (Math.random() < 0.5) {
-                bestS = pickShield(safeS, unknownS, suspects);
-                bestW = pickTarget(unknownW, weapons);
-            } else {
-                bestS = pickTarget(unknownS, suspects);
-                bestW = pickShield(safeW, unknownW, weapons);
             }
         }
     }
 
     if (!bestS) bestS = suspects[0];
     if (!bestW) bestW = weapons[0];
-
-    // Calcolo Tipo Strategia
-    const isSafeS = (grid[bestS][myName] === 2 || grid[bestS].SOL === 2);
-    const isSafeW = (grid[bestW][myName] === 2 || grid[bestW].SOL === 2);
-    const isSafeR = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
-
-    const safeCount = (isSafeS ? 1 : 0) + (isSafeW ? 1 : 0) + (isSafeR ? 1 : 0);
-    let strategyType = "";
-
-    if (safeCount === 3) strategyType = "Bluff Totale";
-    else if (safeCount === 2) strategyType = "Cecchino";
-    else if (safeCount === 1) strategyType = "Bilanciata";
-    else strategyType = "Aggressiva";
 
     return { 
         suspect: bestS, 
@@ -183,7 +214,7 @@ function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
 
     const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
-    const isLateGame = unknownCount <= 8; 
+    const isLateGame = unknownCount <= Math.ceil(allCards.length * 0.4); 
     const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
 
     let moves = rooms.map(room => {
@@ -199,12 +230,12 @@ function calculateTacticalMoves(currentLoc) {
         const isCurrent = room === currentLoc;
         const dist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
         const isSecret = !isCurrent && dist === 0; 
-        const trueTurns = isCurrent ? 0 : TURN_MATRIX[currentLoc][room];
+        const trueTurns = isCurrent ? 0 : (TURN_MATRIX[currentLoc] ? TURN_MATRIX[currentLoc][room] : 99);
         const diceReach = !isCurrent && !isSecret && (dist <= 10); 
         const solStatus = grid[room].SOL; 
         const isMyRoom = grid[room][myName] === 2;
         
-        // NUOVO: Verifica se la stanza è posseduta da un avversario (Bruciata)
+        // Verifica se la stanza è posseduta da un avversario (Bruciata)
         let ownedByEnemy = false;
         players.forEach(p => {
              if (p !== myName && grid[room][p] === 2) ownedByEnemy = true;
@@ -224,14 +255,17 @@ function calculateTacticalMoves(currentLoc) {
         }
 
         // --- 2. BONUS STRATEGIA ---
-        if (hypothesis.type === "Cecchino") {
+        if (hypothesis.type.includes("Ghost")) {
+            score += 500; reasons.push("👻 Fantasma");
+        }
+        if (hypothesis.type.includes("Cecchino")) {
             score += 300; reasons.push("🎯 Cecchino");
         }
-        if (hypothesis.type === "Aggressiva") {
+        if (hypothesis.type.includes("Aggressiva")) {
             score += 150; reasons.push("🔥 Aggro");
         }
 
-        // --- 3. COSTO MOVIMENTO (MODIFICATO) ---
+        // --- 3. COSTO MOVIMENTO ---
         if (isCurrent) {
             if (ownedByEnemy) {
                 score -= 500; reasons.push("⚠️ Bruciata");
@@ -243,7 +277,6 @@ function calculateTacticalMoves(currentLoc) {
         } else if (isSecret) {
             score += 900; reasons.push("🚇 Segreto"); 
         } else {
-            // Analisi Rischio Dadi standard
             if (dist <= 7) {
                 score -= (trueTurns * 80); 
                 reasons.push("🎲 Facile");
@@ -261,7 +294,6 @@ function calculateTacticalMoves(currentLoc) {
             const dWeapon = getCardDensity(hypothesis.weapon);
             const dRoom = getCardDensity(room);
 
-            // Riduciamo l'impatto statistico se la stanza è bruciata
             let multiplier = ownedByEnemy ? 5 : 20; 
             const totalDensity = (dSuspect + dWeapon + dRoom) * multiplier;
             
@@ -293,7 +325,7 @@ function updateTacticalSuggestions() {
     }
 
     const rankedMoves = calculateTacticalMoves(currentLoc);
-    const top3 = rankedMoves.filter(s => s.score > -500).slice(0, 3);
+    const top3 = rankedMoves.filter(s => s.score > -2000).slice(0, 3);
 
     let html = "";
     if (top3.length === 0) html = "<div class='suggestions-placeholder'>Nessuna mossa utile.</div>";
