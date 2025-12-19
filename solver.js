@@ -89,12 +89,12 @@ function runSolver(fromSimulation = false) {
             changed = false;
             const snap = JSON.stringify(grid);
 
-            // 1. Clean satisfied constraints
+            // 1. Pulizia vincoli soddisfatti
             const nCons = constraints.length;
             constraints = constraints.filter(con => !con.cards.some(c => grid[c][con.player] === 2));
             if (constraints.length !== nCons) changed = true;
 
-            // 2. Math & Pigeonhole
+            // 2. Matematica & Pigeonhole (Conteggi)
             players.forEach(p => {
                 let found = 0, unknown = [];
                 allCards.forEach(c => {
@@ -106,15 +106,12 @@ function runSolver(fromSimulation = false) {
                     if (isSimulating) throw "SIM_LIMIT_EXCEEDED";
                     log(`⚠️ Errore: ${p} ha troppe carte!`);
                 }
-                // Se carte trovate = limite, resto è NO
                 if (found === limits[p] && unknown.length > 0) {
                     unknown.forEach(c => setFact(c, p, 1)); changed = true;
                 }
-                // Se carte trovate + ignote = limite, resto è SI
                 if (found < limits[p] && (found + unknown.length === limits[p]) && unknown.length > 0) {
                     unknown.forEach(c => setFact(c, p, 2)); changed = true;
                 }
-                // Advanced Pigeonhole (1 slot left)
                 if (limits[p] - found === 1) {
                     const pCons = constraints.filter(c => c.player === p);
                     if(pCons.length > 0) {
@@ -127,7 +124,7 @@ function runSolver(fromSimulation = false) {
                 }
             });
 
-            // 3. Direct Constraints Resolution
+            // 3. Risoluzione Vincoli Diretti
             constraints.forEach(con => {
                 const possible = con.cards.filter(c => grid[c][con.player] !== 1);
                 if (possible.length === 0 && isSimulating) throw "SIM_IMPOSSIBLE_CONSTRAINT";
@@ -139,7 +136,7 @@ function runSolver(fromSimulation = false) {
                 }
             });
 
-            // 4. Intersezione Vincoli (Deep Logic)
+            // 4. Intersezione Vincoli
             players.forEach(p => {
                 let knownHeld = 0;
                 allCards.forEach(c => { if(grid[c][p] === 2) knownHeld++; });
@@ -171,7 +168,7 @@ function runSolver(fromSimulation = false) {
                 }
             });
             
-             // Category Elimination
+             // Categorie Eliminazione (Se ne restano 1 solo possibile, è la soluzione)
             [suspects, weapons, rooms].forEach(list => {
                 let owned = 0, unk = [];
                 list.forEach(c => { if(grid[c].SOL === 1) owned++; else if(grid[c].SOL === 0) unk.push(c); });
@@ -179,6 +176,38 @@ function runSolver(fromSimulation = false) {
                     grid[unk[0]].SOL = 2;
                     if(!isSimulating) log(`🏆 SOLUZIONE (Eliminazione): ${unk[0]}`);
                     changed = true;
+                }
+            });
+
+            // 6. ESCLUSIVITÀ SOLUZIONE
+            [suspects, weapons, rooms].forEach(list => {
+                const solution = list.find(c => grid[c].SOL === 2);
+                if (solution) {
+                    list.forEach(c => {
+                        if (c !== solution && grid[c].SOL !== 1) {
+                            grid[c].SOL = 1;
+                            changed = true;
+                        }
+                    });
+                }
+            });
+
+            // 7. PRINCIPIO DI ESISTENZA ("L'ultimo rimasto")
+            allCards.forEach(c => {
+                if (grid[c].SOL === 1) {
+                    let possibleOwners = [];
+                    players.forEach(p => {
+                        if (grid[c][p] !== 1) possibleOwners.push(p);
+                    });
+
+                    if (possibleOwners.length === 1) {
+                        const owner = possibleOwners[0];
+                        if (grid[c][owner] !== 2) {
+                            setFact(c, owner, 2);
+                            if(!isSimulating) log(`⚡️ Deduzione (Esistenza): ${owner} ha ${c}`);
+                            changed = true;
+                        }
+                    }
                 }
             });
 
