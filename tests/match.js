@@ -29,7 +29,6 @@ await (async function runRealisticSimulation() {
     };
 
     function storyLog(icon, text, style) {
-        // Se non viene passato uno stile specifico, usa un default neutro
         const finalStyle = style || "color: #e5e7eb;";
         console.log(`%c${icon} ${text}`, finalStyle);
     }
@@ -58,7 +57,6 @@ await (async function runRealisticSimulation() {
         };
     };
 
-    // Disabilita funzioni UI reali
     window.updateTurnUI = () => {}; window.renderGrid = () => {}; window.log = () => {}; 
 
     if (typeof initPathfinding === 'function') {
@@ -115,7 +113,6 @@ await (async function runRealisticSimulation() {
         }
 
         eliminate(card) {
-            // Rimuove carta dalle possibilità
             if (!this.memory.suspects.includes(card) && 
                 !this.memory.weapons.includes(card) && 
                 !this.memory.rooms.includes(card)) return;
@@ -132,7 +129,6 @@ await (async function runRealisticSimulation() {
         initMemory() { this.hand.forEach(c => this.eliminate(c)); }
 
         analyzeNoResponse(triplet) { 
-            // Se nessuno risponde, le carte sono la soluzione (a meno che non le abbia io)
             if (!this.hand.includes(triplet.s)) { this.knownSolution.s = triplet.s; this.memory.suspects = [triplet.s]; }
             if (!this.hand.includes(triplet.w)) { this.knownSolution.w = triplet.w; this.memory.weapons = [triplet.w]; }
             if (!this.hand.includes(triplet.r)) { this.knownSolution.r = triplet.r; this.memory.rooms = [triplet.r]; }
@@ -143,7 +139,6 @@ await (async function runRealisticSimulation() {
         }
 
         getSolutionAttempt() {
-            // HERO usa il solver globale, BOT usa la memoria locale
             if (this.name === HERO_NAME) {
                 const s = suspects.find(c => grid[c].SOL === 2);
                 const w = weapons.find(c => grid[c].SOL === 2);
@@ -160,25 +155,18 @@ await (async function runRealisticSimulation() {
             let w = pick(this.memory.weapons, this.knownSolution.w) || weapons[0];
             let r = currentRoom;
 
-            // Bluff (20% chance)
             if (Math.random() < 0.2) {
                 const mySuspects = this.hand.filter(c => suspects.includes(c));
                 const myWeapons = this.hand.filter(c => weapons.includes(c));
-                
-                if (Math.random() < 0.5 && mySuspects.length > 0) {
-                    s = mySuspects[Math.floor(Math.random() * mySuspects.length)];
-                } else if (myWeapons.length > 0) {
-                    w = myWeapons[Math.floor(Math.random() * myWeapons.length)];
-                }
+                if (Math.random() < 0.5 && mySuspects.length > 0) s = mySuspects[Math.floor(Math.random() * mySuspects.length)];
+                else if (myWeapons.length > 0) w = myWeapons[Math.floor(Math.random() * myWeapons.length)];
             }
             return { s, w, r };
         }
     }
 
-    // Inizializzazione Giocatori
     const simPlayers = players.map((p, i) => new SimPlayer(p, suspects[i] || "Unknown"));
 
-    // Distribuzione Carte
     let pIdx = 0;
     while(deck.length > 0) {
         simPlayers[pIdx].hand.push(deck.pop());
@@ -186,7 +174,6 @@ await (async function runRealisticSimulation() {
     }
     simPlayers.forEach(p => p.initMemory());
 
-    // Configurazione Limiti Solver e Mano Eroe
     const baseCount = Math.floor((allCards.length - 3) / players.length);
     const remainder = (allCards.length - 3) % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
@@ -194,7 +181,6 @@ await (async function runRealisticSimulation() {
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
     heroPlayer.hand.forEach(c => setFact(c, HERO_NAME, 2));
 
-    // Gestione Posizione Pedine (Token)
     let tokenPositions = {}; 
     suspects.forEach(s => {
         const owner = simPlayers.find(p => p.character === s);
@@ -253,11 +239,8 @@ await (async function runRealisticSimulation() {
         const isWin = (accusation.s === solution[0] && accusation.w === solution[1] && accusation.r === solution[2]);
         
         if (isWin) {
-            if (player.name === HERO_NAME) {
-                storyLog("🏆", `VITTORIA! ${player.name} ha vinto in ${turnCount} turni.`, LogTheme.WIN);
-            } else {
-                storyLog("💥", `SCONFITTA! ${player.name} ha risolto il caso in ${turnCount} turni.`, LogTheme.FAIL);
-            }
+            if (player.name === HERO_NAME) storyLog("🏆", `VITTORIA! ${player.name} ha vinto in ${turnCount} turni.`, LogTheme.WIN);
+            else storyLog("💥", `SCONFITTA! ${player.name} ha risolto il caso in ${turnCount} turni.`, LogTheme.FAIL);
             return { gameOver: true };
         } else {
             storyLog("💀", `ACCUSA ERRATA! ${player.name} eliminato.`, LogTheme.ERROR);
@@ -266,58 +249,46 @@ await (async function runRealisticSimulation() {
         }
     }
 
-    // FASE 1: MOVIMENTO
     function handleMovementPhase(player) {
         const canStay = player.wasDragged;
-        player.wasDragged = false; // Reset flag
+        player.wasDragged = false; 
         
-        // Log inizio turno
         let style = (player.name === HERO_NAME) ? LogTheme.HERO : LogTheme.HEADER;
         let headerTxt = `(Posizione: ${player.currentLocation}${canStay ? ", può restare" : ""})`;
         storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, style);
 
-        // Check Epifania Pre-Movimento (se so già la soluzione, non mi muovo, accuso)
         const preMoveSol = player.getSolutionAttempt();
         if (preMoveSol) {
             player.targetLocation = player.currentLocation;
             player.squaresLeft = 0;
             storyLog("🚨", `${player.name} conosce la soluzione e procede con l'accusa.`, LogTheme.WARN);
-            return; // Salta il movimento fisico
+            return;
         }
 
         const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
         
-        // --- CASO A: IN VIAGGIO (Corridoio) ---
         if (!player.inRoom) {
             player.squaresLeft -= dice;
             if (player.squaresLeft <= 0) {
-                // Arrivato
                 updateTokenLocation(player.character, player.targetLocation);
                 storyLog("🏃", `Arriva in ${player.targetLocation} (Dadi: ${dice})`, LogTheme.MOVE);
             } else {
-                // Ancora in viaggio
                 storyLog("👣", `Prosegue verso ${player.targetLocation} (Dadi: ${dice}, Mancano: ${player.squaresLeft})`, LogTheme.DICE);
             }
             return;
         }
 
-        // --- CASO B: SCELTA STANZA ---
-        
-        // LOGICA HERO
         if (player.name === HERO_NAME) {
             mockElements['current-position'].value = player.currentLocation; 
             let moves = calculateTacticalMoves(player.currentLocation);
             
-            // Se sono stato trascinato, posso stare, altrimenti devo muovermi
             if (!canStay) moves = moves.filter(m => m.room !== player.currentLocation);
             
-            // Filtro mosse valide col dado
             const valid = moves.filter(m => m.isCurrent || m.isSecret || m.dist <= dice);
             const best = valid.length > 0 ? valid[0] : (moves[0] || null);
 
             if (best) {
                 const isReachableNow = best.isCurrent || best.isSecret || best.dist <= dice;
-
                 if (isReachableNow) {
                     player.targetLocation = best.room;
                     updateTokenLocation(player.character, best.room);
@@ -325,16 +296,13 @@ await (async function runRealisticSimulation() {
                     else if (!best.isCurrent) storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, LogTheme.MOVE);
                     else storyLog("⚓️", "Resta nella stanza.", LogTheme.MOVE);
                 } else {
-                    // Tiro insufficiente: esco in corridoio
                     player.targetLocation = best.room;
                     player.inRoom = false;
                     player.squaresLeft = best.dist - dice;
                     storyLog("🎲", `Tiro basso (${dice}), esce verso ${best.room} (Mancano: ${player.squaresLeft})`, LogTheme.DICE);
                 }
             }
-        } 
-        // LOGICA BOT
-        else {
+        } else {
             if (canStay) {
                 player.targetLocation = player.currentLocation;
                 player.squaresLeft = 0;
@@ -345,7 +313,6 @@ await (async function runRealisticSimulation() {
                 const reachable = potential.filter(r => dists[r] === 0 || dists[r] <= dice);
 
                 if (reachable.length > 0) {
-                    // Bot sceglie a caso tra le raggiungibili (o preferisce quelle utili alla memoria)
                     const useful = reachable.filter(r => player.memory.rooms.includes(r));
                     const dest = useful.length > 0 
                         ? useful[Math.floor(Math.random() * useful.length)] 
@@ -358,7 +325,6 @@ await (async function runRealisticSimulation() {
                     if (dists[dest] === 0) storyLog("🚇", `Usa passaggio segreto -> ${dest}`, LogTheme.MOVE);
                     else storyLog("🏃", `Raggiunge ${dest} (Dadi: ${dice})`, LogTheme.MOVE);
                 } else {
-                    // Tiro basso -> Corridoio
                     const dest = potential[Math.floor(Math.random() * potential.length)];
                     player.targetLocation = dest;
                     player.inRoom = false;
@@ -369,12 +335,10 @@ await (async function runRealisticSimulation() {
         }
     }
 
-    // FASE 2: RISPOSTE AGLI INTERROGATORI
     function handleResponsePhase(asker, hypothesis, askerIdx) {
         let responder = null;
         let cardShown = null;
         
-        // Iteriamo sui giocatori in senso orario
         for (let i = 1; i < players.length; i++) {
             const checkIdx = (askerIdx + i) % players.length;
             const checker = simPlayers[checkIdx];
@@ -402,8 +366,6 @@ await (async function runRealisticSimulation() {
             } else {
                 asker.eliminate(cardShown);
             }
-            
-            // Se nessuno dei due sono io, registro il vincolo
             if (responder.name !== HERO_NAME && asker.name !== HERO_NAME) {
                 addConstraint(responder.name, [hypothesis.s, hypothesis.w, hypothesis.r]);
             }
@@ -415,16 +377,12 @@ await (async function runRealisticSimulation() {
                 });
             } else {
                 asker.analyzeNoResponse(hypothesis);
-                if (asker.hasFullSolution()) {
-                    storyLog("💡", `${asker.name} ha capito tutto!`, LogTheme.WARN);
-                } else {
-                    storyLog("🤔", `${asker.name} ha dedotto una parte della soluzione...`, LogTheme.WARN);
-                }
+                if (asker.hasFullSolution()) storyLog("💡", `${asker.name} ha capito tutto!`, LogTheme.WARN);
+                else storyLog("🤔", `${asker.name} ha dedotto una parte della soluzione...`, LogTheme.WARN);
             }
         }
     }
 
-    // CHECK VITTORIA SOLVER (Solo UI)
     let foundParts = { s: false, w: false, r: false };
     let solverWonLog = false;
     function checkSolverProgress() {
@@ -468,19 +426,21 @@ await (async function runRealisticSimulation() {
         // 1. MOVIMENTO
         handleMovementPhase(currentPlayer);
 
-        // 2. AZIONE (Se in stanza)
+        // 2. AZIONE
         if (currentPlayer.inRoom) {
             
-            // A. TENTATIVO ACCUSA (Epifania o calcolo)
+            // A. ACCUSA
             const solAttempt = currentPlayer.getSolutionAttempt();
             const res = handleAccusation(currentPlayer, solAttempt, turnCount);
             if (res && res.gameOver) { gameOver = true; break; }
 
-            // B. FORMULAZIONE IPOTESI
+            // B. IPOTESI
             let hypothesis = { s: null, w: null, r: currentPlayer.currentLocation };
             
             if (currentPlayer.name === HERO_NAME) {
-                const sug = generateHypothesisForRoom(currentPlayer.currentLocation);
+                // FIX: Recupera le probabilità prima di chiamare generateHypothesisForRoom
+                const allProbs = (typeof getProbabilities === 'function') ? getProbabilities() : { solution: {}, distribution: {} };
+                const sug = generateHypothesisForRoom(currentPlayer.currentLocation, allProbs);
                 hypothesis.s = sug.suspect; hypothesis.w = sug.weapon;
                 storyLog("🧠", `Indagine Hero: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, LogTheme.HYPOTHESIS);
             } else {
@@ -489,19 +449,17 @@ await (async function runRealisticSimulation() {
                 storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, LogTheme.HYPOTHESIS);
             }
 
-            // Trascinamento del sospettato nella stanza corrente
             if (tokenPositions[hypothesis.s] !== currentPlayer.currentLocation) {
                 updateTokenLocation(hypothesis.s, currentPlayer.currentLocation, true);
             }
 
-            // C. FASE RISPOSTE
+            // C. RISPOSTE
             handleResponsePhase(currentPlayer, hypothesis, currentPlayerIdx);
 
-            // D. ESECUZIONE SOLVER
+            // D. SOLVER UI CHECK
             checkSolverProgress();
 
-            // E. CHECK EPIFANIA IMMEDIATA (Post-Risposta)
-            // Se ho appena scoperto l'ultimo pezzo, accuso subito nello stesso turno
+            // E. EPIFANIA POST-RISPOSTA
             const postMoveSol = currentPlayer.getSolutionAttempt();
             if (postMoveSol) {
                 storyLog("⚡️", `${currentPlayer.name} ha trovato la soluzione e procede con l'accusa.`, LogTheme.WARN);
