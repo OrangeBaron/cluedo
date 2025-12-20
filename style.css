@@ -346,6 +346,22 @@ th:not(:first-child) {
     border-bottom: 2px solid var(--border); /* Opzionale: rinforza la separazione */
 }
 
+c-prob {
+    color: #a5b4fc; /* Indaco chiaro */
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+.prob-text-sol {
+    float: right;
+    font-size: 0.7rem;
+    color: var(--accent);
+    background: rgba(0,0,0,0.3);
+    padding: 1px 4px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
 /* =========================================
    8. VIEW: TURN INTERFACE
    ========================================= */

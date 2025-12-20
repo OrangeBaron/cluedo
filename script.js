@@ -96,41 +96,43 @@ function finalizeSetup() {
         return;
     }
 
-    // Inizializza la Griglia (definita in solver.js)
-    allCards.forEach(c => { 
-        grid[c] = { SOL: 0 }; 
-        players.forEach(p => grid[c][p] = 0); 
-    });
+    // 1. Inizializzazione Variabili Gioco (Solver)
+    // Usa la nuova funzione resetGameVars per pulire cache e griglia
+    if (typeof resetGameVars === 'function') {
+        resetGameVars();
+    } else {
+        // Fallback (non dovrebbe servire se solver.js è aggiornato)
+        allCards.forEach(c => { grid[c] = { SOL: 0 }; players.forEach(p => grid[c][p] = 0); });
+    }
 
-    // Imposta le mie carte come "Viste" (2)
-    checks.forEach(chk => setFact(chk.value, myName, 2)); // setFact è in solver.js
+    // 2. Imposta le mie carte come "Viste" (2)
+    checks.forEach(chk => setFact(chk.value, myName, 2));
 
-    // Calcola i limiti carte per tutti (Logica limiti definita qui per setup)
+    // 3. Calcola i limiti carte per tutti
     const baseCount = Math.floor(CARDS_IN_DECK / players.length);
     const remainder = CARDS_IN_DECK % players.length;
     players.forEach((p, index) => { 
         limits[p] = baseCount + (index < remainder ? 1 : 0); 
     });
 
-    // Configurazione UI Dropdowns
+    // 4. Configurazione UI
     populateSelect('turn-asker', players); 
     populateSelect('turn-responder', players, true);
     populateSelect('turn-suspect', suspects, false, "👤 Sospettato");
     populateSelect('turn-weapon', weapons, false, "🔫 Arma");
     populateSelect('turn-room', rooms, false, "🏰 Stanza");
     
-    // Configurazione Tattica (Tactics.js)
     populateSelect('current-position', rooms);
-    initPathfinding(); // Da tactics.js
+    if(typeof initPathfinding === 'function') initPathfinding();
 
     currentTurnIndex = 0;
     updateTurnUI(); 
 
     switchView('view-hand', 'view-game');
     
-    // Prima esecuzione Solver
-    runSolver(); // Da solver.js
-    updateTacticalSuggestions(); // Da tactics.js
+    // 5. Prima esecuzione Motori
+    runSolver(); 
+    updateTacticalSuggestions(); 
 }
 
 // --- TURN MANAGEMENT ---
@@ -233,7 +235,6 @@ function submitTurn() {
         if(p === responder) break;
         if(responder === 'none' && p === asker) break;
         
-        // setFact è in solver.js
         involved.forEach(c => setFact(c, p, 1)); 
         
         currentIdx = (currentIdx + 1) % players.length;
@@ -249,11 +250,9 @@ function submitTurn() {
                 log(`👁️ Hai visto: <span class="log-highlight">${seen}</span>`);
                 setFact(seen, responder, 2);
             } else {
-                // Caso raro (errore input utente), ma fallback sicuro
                 addConstraint(responder, involved); 
             }
         } else if (responder !== myName) {
-            // addConstraint è in solver.js
             addConstraint(responder, involved);
         }
     } else {
@@ -271,16 +270,15 @@ function submitTurn() {
     updateTurnUI();
     
     // Core Engine Execution
-    runSolver(); // solver.js
-    updateTacticalSuggestions(); // tactics.js
+    runSolver(); 
+    // Avvia la simulazione Monte Carlo per aggiornare i suggerimenti tattici
+    // Nota: Potrebbe causare un micro-freeze impercettibile (2000 iterazioni)
+    updateTacticalSuggestions(); 
 }
 
 // --- LOGGING & RENDERING ---
 
 function log(m) {
-    // Non loggare durante le simulazioni del DeepScan
-    if (typeof isSimulating !== 'undefined' && isSimulating) return;
-
     const textOnly = m.replace(/<[^>]*>/g, '');
     const time = new Date().toLocaleTimeString();
     fullGameLogs.push(`[${time}] ${textOnly}`);
@@ -291,6 +289,10 @@ function log(m) {
 
 function renderGrid() {
     const table = document.getElementById('main-grid');
+    
+    // Recupera probabilità (se disponibili)
+    const probs = (typeof getProbabilities === 'function') ? getProbabilities() : null;
+
     let html = `<thead><tr><th>Carte</th>`;
     players.forEach(p => html += `<th title="${p}">${p}</th>`);
     html += `</tr></thead><tbody>`;
@@ -299,8 +301,22 @@ function renderGrid() {
         html += `<tr><td colspan="${players.length+1}" class="grid-section-title"><b>${title.toUpperCase()}</b></td></tr>`;
         list.forEach(c => {
             const isSol = grid[c].SOL === 2;
+            const isNoSol = grid[c].SOL === 1;
+            
+            // Colora il nome della carta se è probabile soluzione
+            let cardStyle = "";
+            let solPctDisplay = "";
+            if (!isSol && !isNoSol && probs && probs.solution[c] > 0) {
+                const pct = Math.round(probs.solution[c] * 100);
+                if (pct > 0) {
+                    cardStyle = `style="background: linear-gradient(90deg, rgba(245, 158, 11, ${probs.solution[c]*0.4}) 0%, transparent 100%);"`;
+                    solPctDisplay = `<span class="prob-text-sol">${pct}%</span>`;
+                }
+            }
+
             const rowClass = isSol ? 'c-sol' : '';
-            html += `<tr><td class="${rowClass}">${c}</td>`;
+            html += `<tr><td class="${rowClass}" ${cardStyle}>${c} ${solPctDisplay}</td>`;
+            
             players.forEach(p => {
                 const val = grid[c][p];
                 let display = '&nbsp;';
@@ -308,6 +324,20 @@ function renderGrid() {
                 
                 if (val === 2) { display = '✔'; cls = 'c-yes'; }
                 else if (val === 1) { display = '✘'; cls = 'c-no'; }
+                else {
+                    // HEATMAP: Mostra % se disponibile
+                    if (probs && probs.distribution && probs.distribution[c][p] > 0) {
+                        const pct = Math.round(probs.distribution[c][p] * 100);
+                        if (pct > 0) {
+                            display = `${pct}%`;
+                            cls = 'c-prob'; // Nuova classe CSS
+                            // Sfondo leggero proporzionale alla probabilità
+                            // Opacità da 0.05 a 0.3
+                            const alpha = 0.05 + (probs.distribution[c][p] * 0.25);
+                            display = `<span style="background:rgba(99, 102, 241, ${alpha}); padding:2px 4px; border-radius:4px;">${pct}%</span>`;
+                        }
+                    }
+                }
                 
                 html += `<td class="${cls}">${display}</td>`;
             });

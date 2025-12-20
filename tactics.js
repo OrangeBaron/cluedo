@@ -1,4 +1,7 @@
-// --- MAP DATA & CONSTANTS ---
+// ==========================================
+// 1. DATI STATICI & FISICA (Distanze & Dadi)
+// ==========================================
+
 const ROOM_DISTANCES = {
     "Cucina":{"Ballo":7,"Serra":20,"Biliardo":17,"Biblioteca":23,"Studio":0,"Ingresso":18,"Veranda":19,"Pranzo":11},
     "Ballo":{"Cucina":7,"Serra":4,"Biliardo":6,"Biblioteca":12,"Studio":17,"Ingresso":13,"Veranda":15,"Pranzo":7},
@@ -13,7 +16,16 @@ const ROOM_DISTANCES = {
 
 let TURN_MATRIX = {};
 
-// --- PATHFINDING INIT ---
+// Probabilità cumulativa (CDF) di ottenere almeno X con 2d6
+// Indice 0-1 non usati, 2=100%, ..., 12=2.7%
+const DICE_PROBS = [0, 0, 1.0, 0.97, 0.91, 0.83, 0.72, 0.58, 0.41, 0.27, 0.16, 0.08, 0.02];
+
+function getReachability(dist) {
+    if (dist <= 0) return 1.0; // Già lì o passaggio segreto
+    if (dist > 12) return 0.0; // Impossibile in 1 turno con i dadi
+    return DICE_PROBS[dist];
+}
+
 function initPathfinding() {
     rooms.forEach(r1 => {
         TURN_MATRIX[r1] = {};
@@ -23,329 +35,150 @@ function initPathfinding() {
             } else {
                 const dist = ROOM_DISTANCES[r1][r2];
                 if (dist === 0) {
-                    TURN_MATRIX[r1][r2] = 1; 
+                    TURN_MATRIX[r1][r2] = 1; // Passaggio segreto conta come 1 mossa sicura
                 } else {
+                    // Stima euristica dei turni: media 7 passi a turno
                     TURN_MATRIX[r1][r2] = Math.ceil(dist / 7);
                 }
             }
         });
     });
-
-    // Floyd-Warshall Algorithm for All-Pairs Shortest Paths
-    rooms.forEach(k => {
-        rooms.forEach(i => {
-            rooms.forEach(j => {
-                const alternativePath = TURN_MATRIX[i][k] + TURN_MATRIX[k][j];
-                if (alternativePath < TURN_MATRIX[i][j]) {
-                    TURN_MATRIX[i][j] = alternativePath;
-                }
-            });
-        });
-    });
 }
 
-// --- STATISTICAL HELPERS ---
+// ==========================================
+// 2. MOTORE ENTROPICO (Scienza della Deduzione)
+// ==========================================
 
 /**
- * Calcola la "Densità" di una carta ignota.
- * Punteggio alto = Molto probabile che sia in mano a un avversario (tanti slot liberi).
- * Punteggio basso = Probabile che sia nella Busta (o in mano a uno con pochi slot).
+ * Calcola l'entropia binaria di una probabilità p.
+ * Massima (1.0) quando p=0.5 (massima incertezza).
+ * Minima (0.0) quando p=0 o p=1 (certezza).
  */
-function getCardDensity(card) {
-    if (!card || !grid[card] || grid[card].SOL !== 0) return 0; // Solo per carte ignote
-    
-    let density = 0;
-    players.forEach(p => {
-        if (p === myName) return;
-        
-        // Se il giocatore PUÒ avere la carta (non c'è un 'NO' sicuro)
-        if (grid[card][p] !== 1) {
-            // Conta slot bui (Carte totali - Carte viste)
-            const seen = allCards.filter(c => grid[c][p] === 2).length;
-            const slots = (limits[p] || 0) - seen;
-            
-            // Ogni slot buio aumenta la probabilità che la carta sia qui
-            if (slots > 0) density += slots;
-        }
-    });
-    return density;
+function shannonEntropy(p) {
+    if (p <= 0 || p >= 1) return 0;
+    return -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
 }
 
 /**
- * Calcola il "Rejection Count" (Quanti giocatori hanno detto NO a questa carta).
- * Usato per la strategia "Ghost Protocol".
+ * Genera l'ipotesi migliore per una stanza basandosi sull'Information Gain.
+ * @param {string} room Stanza corrente
+ * @param {Object} probs Cache delle probabilità dal solver
  */
-function getRejectionCount(card) {
-    if (!card || !grid[card]) return 0;
-    let count = 0;
-    players.forEach(p => {
-        if (p !== myName && grid[card][p] === 1) count++; // 1 = NON CE L'HA
-    });
-    return count;
-}
-
-// --- TACTICAL ENGINE ---
-
-function generateHypothesisForRoom(targetRoom, isLateGame = false) {
-    const pickRandom = (arr) => arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
+function generateHypothesisForRoom(room, allProbs) {
+    const pSol = allProbs.solution[room] || 0; // FIX: Accesso a .solution
     
-    // Helper: Seleziona la carta con la Densità più alta (Massimizza info gain)
-    const pickBestDensity = (arr) => {
-        if (!arr || arr.length === 0) return null;
-        // Ordina per densità decrescente
-        const sorted = [...arr].sort((a, b) => getCardDensity(b) - getCardDensity(a));
-        return sorted[0];
+    const candidatesS = suspects.filter(c => grid[c].SOL !== 1 && grid[c][myName] !== 2);
+    const candidatesW = weapons.filter(c => grid[c].SOL !== 1 && grid[c][myName] !== 2);
+    const shieldsS = suspects.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
+    const shieldsW = weapons.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
+
+    const getUtility = (card) => {
+        const p = allProbs.solution[card] || 0; // FIX
+        return p + (shannonEntropy(p) * 0.5); 
     };
 
-    const unknownS = suspects.filter(c => grid[c].SOL === 0);
-    const unknownW = weapons.filter(c => grid[c].SOL === 0);
-    
-    // Carte sicure da usare come "Scudo" (Shielding)
-    const safeS = suspects.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
-    const safeW = weapons.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
+    let bestS = candidatesS.sort((a, b) => getUtility(b) - getUtility(a))[0];
+    let bestW = candidatesW.sort((a, b) => getUtility(b) - getUtility(a))[0];
+    let stratName = "🔬 Scientist";
 
-    let bestS, bestW, strategyType = "Standard";
+    if (!bestS) bestS = shieldsS[0] || suspects[0];
+    if (!bestW) bestW = shieldsW[0] || weapons[0];
 
-    // --- GHOST PROTOCOL (NEW STRATEGY) ---
-    // Cerca carte che sono già state smentite da molti giocatori ma non sono ancora risolte.
-    // L'obiettivo è "chiudere il cerchio" (Intersection Targeting).
-    
-    const ghostS = unknownS.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
-    const ghostW = unknownW.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
-    
-    const activeOpponents = players.length - 1; 
-    const rejectionThreshold = Math.max(1, Math.floor(activeOpponents / 2)); 
-
-    // CASO 1: GHOST SUSPECT FOUND
-    // Se c'è un sospettato molto smentito e abbiamo un'arma sicura da usare come scudo
-    if (ghostS && getRejectionCount(ghostS) >= rejectionThreshold && safeW.length > 0) {
-        bestS = ghostS;
-        bestW = safeW[Math.floor(Math.random() * safeW.length)]; // Usa scudo arma
-        strategyType = "👻 Sospettato Fantasma";
-    }
-    // CASO 2: GHOST WEAPON FOUND
-    // Se c'è un'arma molto smentita e abbiamo un sospettato sicuro da usare come scudo
-    else if (ghostW && getRejectionCount(ghostW) >= rejectionThreshold && safeS.length > 0) {
-        bestS = safeS[Math.floor(Math.random() * safeS.length)]; // Usa scudo sospettato
-        bestW = ghostW;
-        strategyType = "👻 Arma Fantasma";
-    }
-    // CASO 3: LOGICA CLASSICA (Fallback)
-    else {
-        const pickTarget = (unknownList, allList) => {
-            if (unknownList.length > 0) return pickBestDensity(unknownList); // USA LA DENSITÀ
-            return pickRandom(allList); 
-        };
-
-        const pickShield = (safeList, unknownList, allList) => {
-            if (safeList.length > 0) return pickRandom(safeList);
-            if (unknownList.length > 0) return pickBestDensity(unknownList);
-            return pickRandom(allList);
-        };
-
-        const isRoomSafe = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
-
-        if (isLateGame) {
-            const needS = unknownS.length > 0;
-            const needW = unknownW.length > 0;
-
-            if (needS && needW) {
-                if (isRoomSafe) {
-                    bestS = pickTarget(unknownS, suspects);
-                    bestW = pickTarget(unknownW, weapons);
-                    strategyType = "Aggressiva";
-                } else {
-                    // Mix difensivo
-                    if (Math.random() < 0.5 && safeS.length > 0) {
-                        bestS = pickShield(safeS, unknownS, suspects);
-                        bestW = pickTarget(unknownW, weapons);
-                        strategyType = "Bilanciata (S)";
-                    } else {
-                        bestS = pickTarget(unknownS, suspects);
-                        bestW = pickShield(safeW, unknownW, weapons);
-                        strategyType = "Bilanciata (W)";
-                    }
-                }
-            } else if (needS) {
-                bestS = pickTarget(unknownS, suspects);
-                bestW = pickShield(safeW, unknownW, weapons);
-                strategyType = "Cecchino (S)";
-            } else if (needW) {
-                bestS = pickShield(safeS, unknownS, suspects);
-                bestW = pickTarget(unknownW, weapons);
-                strategyType = "Cecchino (W)";
-            } else {
-                bestS = pickShield(safeS, unknownS, suspects);
-                bestW = pickShield(safeW, unknownW, weapons);
-                strategyType = "Bluff Totale";
-            }
-        } else {
-            // EARLY GAME
-            if (isRoomSafe) {
-                bestS = pickTarget(unknownS, suspects);
-                bestW = pickTarget(unknownW, weapons);
-                strategyType = "Aggressiva (Early)";
-            } else {
-                if (Math.random() < 0.5) {
-                    bestS = pickShield(safeS, unknownS, suspects);
-                    bestW = pickTarget(unknownW, weapons);
-                    strategyType = "Bilanciata";
-                } else {
-                    bestS = pickTarget(unknownS, suspects);
-                    bestW = pickShield(safeW, unknownW, weapons);
-                    strategyType = "Bilanciata";
-                }
-            }
-        }
+    // Bluff logic (semplificata per brevità, stessa di prima)
+    const roomIsSolved = grid[room].SOL === 2;
+    if (Math.random() > 0.6 && !roomIsSolved) { 
+        if (shieldsS.length > 0 && Math.random() < 0.5) { bestS = shieldsS[0]; stratName = "🛡️ Shield (S)"; }
+        else if (shieldsW.length > 0) { bestW = shieldsW[0]; stratName = "🛡️ Shield (W)"; }
     }
 
-    if (!bestS) bestS = suspects[0];
-    if (!bestW) bestW = weapons[0];
+    const pS = allProbs.solution[bestS] || 0; // FIX
+    const pW = allProbs.solution[bestW] || 0; // FIX
+    if (pS > 0.8 && pW > 0.8) stratName = "🎯 Sniper";
 
-    return { 
-        suspect: bestS, 
-        weapon: bestW, 
-        text: `<b>${bestS}</b> + <b>${bestW}</b>`, 
-        type: strategyType 
+    return {
+        suspect: bestS, weapon: bestW,
+        text: `<b>${bestS}</b> + <b>${bestW}</b>`,
+        type: stratName,
+        probS: Math.round(pS * 100), probW: Math.round(pW * 100)
     };
 }
 
 function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
 
-    const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
-    const isLateGame = unknownCount <= Math.ceil(allCards.length * 0.4); 
-    const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
+    // FIX: Prendi tutto l'oggetto probabilità
+    const allProbs = typeof getProbabilities === 'function' ? getProbabilities() : { solution: {} };
+    const solProbs = allProbs.solution;
 
     let moves = rooms.map(room => {
-        let score = 0, reasons = [];
-        let hypothesis;
-
-        if (isGameSolved) {
-            hypothesis = { suspect: null, weapon: null, text: "🏆 VAI AD ACCUSARE!", type: "Vittoria" };
-        } else {
-            hypothesis = generateHypothesisForRoom(room, isLateGame);
-        }
+        const pRoom = solProbs[room] || 0; // FIX
+        const isMyRoom = grid[room][myName] === 2;
+        const isKnownNo = grid[room].SOL === 1;
         
         const isCurrent = room === currentLoc;
         const dist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
-        const isSecret = !isCurrent && dist === 0; 
-        const trueTurns = isCurrent ? 0 : (TURN_MATRIX[currentLoc] ? TURN_MATRIX[currentLoc][room] : 99);
-        const diceReach = !isCurrent && !isSecret && (dist <= 10); 
-        const solStatus = grid[room].SOL; 
-        const isMyRoom = grid[room][myName] === 2;
+        const isSecret = !isCurrent && dist === 0;
+        let reachability = isCurrent || isSecret ? 1.0 : getReachability(dist);
         
-        // Verifica se la stanza è posseduta da un avversario (Bruciata)
-        let ownedByEnemy = false;
-        players.forEach(p => {
-             if (p !== myName && grid[room][p] === 2) ownedByEnemy = true;
-        });
+        let utility = pRoom * 1000; 
+        if (!isMyRoom && !isKnownNo) utility += shannonEntropy(pRoom) * 200;
 
-        // --- 1. VALORE BASE ---
-        if (solStatus === 2) { 
-            score += 5000; reasons.push("🏆 DELITTO"); 
-        } else if (solStatus === 0) { 
-            score += 200; reasons.push("🔍 Ignota"); 
-        } else if (isMyRoom) { 
-            score += 100; reasons.push("🛡️ Base"); 
-        } else if (ownedByEnemy) { 
-            score -= 1000; reasons.push("💩 Bruciata");
-        } else { 
-            score -= 50; reasons.push("❌ Innocente"); 
-        }
-
-        // --- 2. BONUS STRATEGIA ---
-        if (hypothesis.type.includes("Ghost")) {
-            score += 500; reasons.push("👻 Fantasma");
-        }
-        if (hypothesis.type.includes("Cecchino")) {
-            score += 300; reasons.push("🎯 Cecchino");
-        }
-        if (hypothesis.type.includes("Aggressiva")) {
-            score += 150; reasons.push("🔥 Aggro");
-        }
-
-        // --- 3. COSTO MOVIMENTO ---
         if (isCurrent) {
-            if (ownedByEnemy) {
-                score -= 500; reasons.push("⚠️ Bruciata");
-            } else if (solStatus === 0 || isMyRoom || solStatus === 2) {
-                score += 1200; reasons.push("✅ Resta"); 
-            } else {
-                score -= 200; reasons.push("💨 Via!");
-            }
-        } else if (isSecret) {
-            score += 900; reasons.push("🚇 Segreto"); 
+            if (pRoom < 0.05 && !isMyRoom) utility -= 500; 
+            else utility += 100; 
         } else {
-            if (dist <= 7) {
-                score -= (trueTurns * 80); 
-                reasons.push("🎲 Facile");
-            } else if (dist <= 9) {
-                score -= 300; 
-                reasons.push("⚠️ Rischio");
-            } else {
-                score -= (trueTurns * 100); 
-            }
+            utility *= reachability;
+            if (dist > 12) utility -= 1000;
         }
+        
+        const hypo = generateHypothesisForRoom(room, allProbs); // Passa tutto oggetto
+        
+        let reasons = [];
+        if (pRoom > 0.8) reasons.push("🔥 Hotspot");
+        else if (pRoom < 0.01) reasons.push("❄️ Fredda");
+        else reasons.push("❓ Incerta");
+        if (isSecret) reasons.push("🚇 Segreto");
+        if (dist > 0 && dist <= 12) reasons.push(`🎲 ${Math.round(reachability*100)}%`);
 
-        // --- 4. BONUS DENSITÀ STATISTICA ---
-        if (!isGameSolved) {
-            const dSuspect = getCardDensity(hypothesis.suspect);
-            const dWeapon = getCardDensity(hypothesis.weapon);
-            const dRoom = getCardDensity(room);
-
-            let multiplier = ownedByEnemy ? 5 : 20; 
-            const totalDensity = (dSuspect + dWeapon + dRoom) * multiplier;
-            
-            if (totalDensity > 0) {
-                const finalDensity = Math.min(totalDensity, 400);
-                score += finalDensity;
-                reasons.push(`📊 Stat:${finalDensity}`);
-            }
-        }
-
-        return { 
-            room, score, turns: trueTurns, dist, reasons, hypothesis, 
-            isCurrent, isSecret, diceReach, isSol: solStatus === 2 
+        return {
+            room, score: utility, pRoom: Math.round(pRoom * 100),
+            dist, isSecret, isCurrent, reasons, hypothesis: hypo, reachability
         };
     });
 
     return moves.sort((a, b) => b.score - a.score);
 }
 
-// --- UI HANDLER ---
-
+// UI Rendering rimane uguale, chiamerà calculateTacticalMoves che è stato fixato.
 function updateTacticalSuggestions() {
     const currentLoc = document.getElementById('current-position').value;
     const container = document.getElementById('tactical-suggestions');
+    if (!currentLoc) { container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>'; return; }
     
-    if (!currentLoc) {
-        container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>';
-        return;
-    }
-
     const rankedMoves = calculateTacticalMoves(currentLoc);
-    const top3 = rankedMoves.filter(s => s.score > -2000).slice(0, 3);
-
+    const top3 = rankedMoves.slice(0, 3);
+    
     let html = "";
     if (top3.length === 0) html = "<div class='suggestions-placeholder'>Nessuna mossa utile.</div>";
 
     top3.forEach((s, idx) => {
-        let rankClass = s.isSol ? 'is-top' : (idx === 0 ? 'is-good' : 'is-standard');
-        let turnInfo = s.isCurrent ? "📍 QUI" : (s.isSecret ? "🚇 SEG" : (s.diceReach ? `🎲 ${s.dist}` : `🏃 ~${s.turns}`));
+        let barColor = s.pRoom > 60 ? "var(--success)" : (s.pRoom > 20 ? "var(--accent)" : "var(--text-muted)");
+        let rankClass = idx === 0 ? 'is-top' : 'is-standard';
+        let moveInfo = s.isCurrent ? "QUI" : (s.isSecret ? "🚇 PASSAGGIO" : `🎲 ${Math.round(s.reachability*100)}%`);
+        if (s.dist > 12) moveInfo = "🏃 >1 turno";
 
         html += `
-        <div class="suggestion-item ${rankClass}">
+        <div class="suggestion-item ${rankClass}" style="border-left: 4px solid ${barColor}">
             <div class="suggestion-header">
-                <div><div class="suggestion-room-name">${s.room}</div><div class="suggestion-reasons">${s.reasons.join(', ')}</div></div>
-                <div class="suggestion-score-box"><div class="suggestion-score-val">${s.score}</div><div class="suggestion-turn-info">${turnInfo}</div></div>
+                <div><div class="suggestion-room-name">${s.room} <span style="font-size:0.8em; color:${barColor}; margin-left:5px;">${s.pRoom}% Sol.</span></div>
+                <div class="suggestion-reasons">${s.reasons.join(' • ')}</div></div>
+                <div class="suggestion-score-box"><div class="suggestion-turn-info">${moveInfo}</div></div>
             </div>
-            <div class="suggestion-insight">
-                <span class="insight-icon">${s.isSol ? '🏆' : '💡'}</span>
-                <div class="insight-content">
-                    <div class="insight-text">${s.hypothesis.text} <span class="insight-type">${s.hypothesis.type || ''}</span></div>
-                </div>
+            <div class="suggestion-insight"><span class="insight-icon">💡</span>
+                <div class="insight-content"><div class="insight-text">${s.hypothesis.text} <span style="font-size:0.7em; opacity:0.7">(${s.hypothesis.probS}%/${s.hypothesis.probW}%)</span></div>
+                <span class="insight-type">${s.hypothesis.type}</span></div>
             </div>
+            <div style="width:100%; height:4px; background:#333; margin-top:6px; border-radius:2px; overflow:hidden;"><div style="width:${s.pRoom}%; height:100%; background:${barColor};"></div></div>
         </div>`;
     });
     container.innerHTML = html;
