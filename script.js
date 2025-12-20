@@ -294,7 +294,7 @@ function renderGrid() {
     const probs = (typeof getProbabilities === 'function') ? getProbabilities() : null;
 
     let html = `<thead><tr><th>Carte</th>`;
-    players.forEach(p => html += `<th title="${p}">${p}</th>`);
+    players.forEach(p => html += `<th>${p}</th>`);
     html += `</tr></thead><tbody>`;
 
     const buildRows = (title, list) => {
@@ -306,10 +306,13 @@ function renderGrid() {
             // Colora il nome della carta se è probabile soluzione
             let cardStyle = "";
             let solPctDisplay = "";
+            
             if (!isSol && !isNoSol && probs && probs.solution[c] > 0) {
-                const pct = Math.round(probs.solution[c] * 100);
+                // Sfondo sfumato leggero sul nome
+                const solProb = probs.solution[c];
+                const pct = Math.round(solProb * 100);
                 if (pct > 0) {
-                    cardStyle = `style="background: linear-gradient(90deg, rgba(245, 158, 11, ${probs.solution[c]*0.4}) 0%, transparent 100%);"`;
+                    cardStyle = `style="background: linear-gradient(90deg, rgba(245, 158, 11, ${Math.min(0.4, solProb * 0.5)}) 0%, transparent 100%);"`;
                     solPctDisplay = `<span class="prob-text-sol">${pct}%</span>`;
                 }
             }
@@ -319,43 +322,49 @@ function renderGrid() {
             
             players.forEach(p => {
                 const val = grid[c][p];
-                let display = '&nbsp;';
-                let cls = 'c-unk';
+                let content = '';
+                let cellClass = 'c-unk'; // Classe base per la cella (td)
                 
-                if (val === 2) { display = '✔'; cls = 'c-yes'; }
-                else if (val === 1) { display = '✘'; cls = 'c-no'; }
+                if (val === 2) { 
+                    content = '✔'; 
+                    cellClass = 'c-yes'; 
+                }
+                else if (val === 1) { 
+                    content = '✘'; 
+                    cellClass = 'c-no'; 
+                }
                 else {
-                    // HEATMAP: Mostra % se disponibile
+                    // Logica Probabilità Unificata
                     if (probs && probs.distribution) {
                         const rawProb = probs.distribution[c][p];
                         
-                        // Gestiamo il caso in cui ci sia una probabilità calcolata (anche se 0)
                         if (rawProb !== undefined && rawProb !== null) {
                             let pct = Math.round(rawProb * 100);
+                            let textToShow = `${pct}%`;
 
-                            // FIX: Se la probabilità è > 0 ma < 0.5% (es. 0.1%), Math.round mette 0. 
-                            // Forziamo a mostrare "<1%" o "1%" per non dare l'idea che sia impossibile.
-                            if (pct === 0 && rawProb > 0) {
-                                display = `<span style="font-size:0.75rem; opacity:0.7">&lt;1%</span>`;
-                                cls = 'c-prob';
-                            } 
-                            // Caso normale: percentuale positiva
-                            else if (pct > 0) {
-                                display = `${pct}%`;
-                                cls = 'c-prob';
-                                const alpha = 0.05 + (rawProb * 0.25);
-                                display = `<span style="background:rgba(99, 102, 241, ${alpha}); padding:2px 4px; border-radius:4px;">${pct}%</span>`;
+                            // Gestione <1%
+                            if (pct === 0 && rawProb > 0) textToShow = "<1%";
+
+                            // Calcolo opacità sfondo: min 0.1 (per gli 0%), max 0.8 (per il 100%)
+                            // Usiamo l'indaco (var(--primary)) come base
+                            // Se è 0% esatto (matematicamente impossibile che ce l'abbia, ma non ancora segnato come NO), lo teniamo molto spento.
+                            let alpha = 0.1; 
+                            if (rawProb > 0) {
+                                alpha = 0.15 + (rawProb * 0.65); 
                             }
-                            // Caso 0% secco dalla simulazione (ma logicamente possibile)
-                            else if (pct === 0) {
-                                display = `<span style="color:var(--text-muted); opacity:0.3; font-size:0.7rem">0%</span>`;
-                                cls = 'c-prob'; // O usa c-unk se preferisci grigio
-                            }
+                            
+                            // Se la probabilità è 0 assoluta (dalla simulazione) o molto bassa, il testo è grigio scuro, altrimenti bianco
+                            const textColor = (rawProb < 0.3) ? '#9ca3af' : '#fff'; 
+                            // O se preferisci sempre bianco per uniformità, usa sempre #fff e alza l'alpha minimo.
+                            
+                            // Costruiamo il badge usando lo stile CSS unificato
+                            // Nota: lo style inline definisce SOLO il colore dinamico
+                            content = `<span class="prob-badge" style="background-color: rgba(99, 102, 241, ${alpha}); color: ${textColor}">${textToShow}</span>`;
                         }
                     }
                 }
                 
-                html += `<td class="${cls}">${display}</td>`;
+                html += `<td class="${cellClass}">${content}</td>`;
             });
             html += `</tr>`;
         });

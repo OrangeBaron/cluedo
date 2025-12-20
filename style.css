@@ -278,15 +278,18 @@ table {
     border-collapse: separate; 
     border-spacing: 0; 
     width: 100%; 
-    font-size: 0.85rem; 
+    /* Uniformiamo la grandezza del testo per tutta la tabella */
+    font-size: 0.9rem; 
 }
 
 th, td { 
-    padding: 10px 8px; 
+    padding: 8px 4px; /* Un po' meno padding laterale per far stare i numeri */
     border-right: 1px solid var(--border); 
     border-bottom: 1px solid var(--border); 
     text-align: center; 
     white-space: nowrap; 
+    height: 42px; /* Altezza fissa per coerenza */
+    vertical-align: middle;
 }
 
 th { 
@@ -314,52 +317,90 @@ td:first-child {
     font-weight: 600;
     color: var(--text-main);
     border-right: 2px solid var(--border);
-    max-width: 80px; 
+    max-width: 90px; 
     overflow: hidden; 
-    text-overflow: clip;
+    text-overflow: ellipsis;
+    padding-left: 8px;
 }
 
 th:not(:first-child) {
     color: white;
-    max-width: 40px;
-    overflow: hidden;
-    text-overflow: clip;
+    min-width: 50px; /* Larghezza minima per le % */
 }
 
-@media (min-width: 768px) {
-    th:not(:first-child) {
-        max-width: 80px;
-    }
+/* Grid Cell States */
+
+/* SÌ: Niente trasparenze, colore solido */
+.c-yes { 
+    background: rgba(16, 185, 129, 0.15); 
+    color: var(--success); 
+    font-size: 1.1rem; /* La spunta leggermente più grande */
+    font-weight: bold; 
 }
 
-/* Grid Cell Colors */
-.c-yes { background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; }
-.c-no { color: #ef4444; font-weight: normal; opacity: 0.5; }
-.c-unk { color: #4b5563; font-weight: normal; opacity: 0.3; }
-.c-sol { background: rgba(245, 158, 11, 0.2) !important; color: #fbbf24 !important; border-left: 4px solid #fbbf24 !important; }
+/* NO: Rimosso opacity: 0.5, ora è pieno ma rosso */
+.c-no { 
+    color: var(--danger); 
+    font-size: 1.1rem;
+    font-weight: bold; 
+}
 
+/* Cella Ignota generica */
+.c-unk { 
+    color: var(--text-muted); 
+    font-weight: normal; 
+}
+
+/* SOLUZIONE: Evidenziata */
+.c-sol { 
+    background: rgba(245, 158, 11, 0.2) !important; 
+    color: #fbbf24 !important; 
+    border-left: 4px solid #fbbf24 !important; 
+}
+
+/* Sezione titoli (Sospettati, Armi...) */
 .grid-section-title {
-    text-align: center !important; /* !important serve per vincere l'allineamento a sinistra della prima colonna */
+    text-align: center !important; 
     color: var(--accent) !important;
-    background: var(--bg-card); /* Mantiene lo sfondo coerente */
-    letter-spacing: 2px; /* Un tocco di stile extra per i titoli */
-    border-bottom: 2px solid var(--border); /* Opzionale: rinforza la separazione */
+    background: var(--bg-card); 
+    letter-spacing: 2px; 
+    border-bottom: 2px solid var(--border); 
+    font-size: 0.8rem;
+    padding: 6px !important;
+    height: auto !important;
 }
 
-c-prob {
-    color: #a5b4fc; /* Indaco chiaro */
-    font-size: 0.75rem;
+/* BADGE PERCENTUALE UNIFICATO */
+/* Questo gestisce la forma di tutte le percentuali */
+.prob-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 36px;
+    padding: 4px 2px;
+    border-radius: 6px;
     font-weight: bold;
+    font-size: 0.85rem;
+    color: white;
+    transition: background 0.2s;
 }
 
+/* Piccola label % accanto al nome della carta */
 .prob-text-sol {
     float: right;
-    font-size: 0.7rem;
+    display: inline-flex;       /* Per centrare il contenuto come i badge della griglia */
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;            /* Stessa larghezza minima dei prob-badge */
+    padding: 4px 2px;           /* Stesso padding */
+    border-radius: 6px;         /* Stesso arrotondamento */
+    font-size: 0.85rem;         /* Stessa dimensione del testo */
+    font-weight: bold;          /* Stesso grassetto */
+    margin-left: 8px;           /* Un po' di spazio dal nome della carta */
     color: var(--accent);
-    background: rgba(0,0,0,0.3);
-    padding: 1px 4px;
-    border-radius: 4px;
-    margin-left: 4px;
+    background: rgba(245, 158, 11, 0.15); 
 }
 
 /* =========================================
