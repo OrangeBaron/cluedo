@@ -326,15 +326,31 @@ function renderGrid() {
                 else if (val === 1) { display = '✘'; cls = 'c-no'; }
                 else {
                     // HEATMAP: Mostra % se disponibile
-                    if (probs && probs.distribution && probs.distribution[c][p] > 0) {
-                        const pct = Math.round(probs.distribution[c][p] * 100);
-                        if (pct > 0) {
-                            display = `${pct}%`;
-                            cls = 'c-prob'; // Nuova classe CSS
-                            // Sfondo leggero proporzionale alla probabilità
-                            // Opacità da 0.05 a 0.3
-                            const alpha = 0.05 + (probs.distribution[c][p] * 0.25);
-                            display = `<span style="background:rgba(99, 102, 241, ${alpha}); padding:2px 4px; border-radius:4px;">${pct}%</span>`;
+                    if (probs && probs.distribution) {
+                        const rawProb = probs.distribution[c][p];
+                        
+                        // Gestiamo il caso in cui ci sia una probabilità calcolata (anche se 0)
+                        if (rawProb !== undefined && rawProb !== null) {
+                            let pct = Math.round(rawProb * 100);
+
+                            // FIX: Se la probabilità è > 0 ma < 0.5% (es. 0.1%), Math.round mette 0. 
+                            // Forziamo a mostrare "<1%" o "1%" per non dare l'idea che sia impossibile.
+                            if (pct === 0 && rawProb > 0) {
+                                display = `<span style="font-size:0.75rem; opacity:0.7">&lt;1%</span>`;
+                                cls = 'c-prob';
+                            } 
+                            // Caso normale: percentuale positiva
+                            else if (pct > 0) {
+                                display = `${pct}%`;
+                                cls = 'c-prob';
+                                const alpha = 0.05 + (rawProb * 0.25);
+                                display = `<span style="background:rgba(99, 102, 241, ${alpha}); padding:2px 4px; border-radius:4px;">${pct}%</span>`;
+                            }
+                            // Caso 0% secco dalla simulazione (ma logicamente possibile)
+                            else if (pct === 0) {
+                                display = `<span style="color:var(--text-muted); opacity:0.3; font-size:0.7rem">0%</span>`;
+                                cls = 'c-prob'; // O usa c-unk se preferisci grigio
+                            }
                         }
                     }
                 }

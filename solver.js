@@ -257,7 +257,7 @@ function runDeepScan() {
 // 4. MOTORE MONTE CARLO (PROBABILISTICO)
 // ==========================================
 
-function getProbabilities(iterations = 1000) {
+function getProbabilities(minValidSamples = 500) {
     if (probabilityCache !== null) return probabilityCache;
 
     const solCounts = {};
@@ -276,13 +276,14 @@ function getProbabilities(iterations = 1000) {
     const potentialW = weapons.filter(c => fixedGrid[c].SOL !== 1);
     const potentialR = rooms.filter(c => fixedGrid[c].SOL !== 1);
 
-    // ANTI-CRASH: Se contraddizione totale, ritorna zeri
+    // ANTI-CRASH: Se contraddizione totale, ritorna fallback
     if (potentialS.length === 0 || potentialW.length === 0 || potentialR.length === 0) {
         return createFallbackProbabilities(true);
     }
 
     // Se risolto
     if (potentialS.length === 1 && potentialW.length === 1 && potentialR.length === 1) {
+        // ... (codice invariato per la soluzione certa) ...
         const solRes = {}; const distRes = {};
         allCards.forEach(c => {
             solRes[c] = (grid[c].SOL === 2 ? 1.0 : 0.0);
@@ -293,17 +294,26 @@ function getProbabilities(iterations = 1000) {
         return probabilityCache;
     }
 
-    // Adaptive Iterations: Se la situazione è complessa, prova di più
-    let adaptiveIterations = iterations;
+    // === MODIFICA CORE: Target su Mondi Validi, non Iterazioni ===
+    let attempts = 0;
+    const MAX_ATTEMPTS = 100000; // Limite sicurezza per evitare freeze infiniti
+    const MAX_TIME_MS = 150;     // Non bloccare la UI per più di 150ms
+    const startTime = performance.now();
     
-    // START SIMULATION
-    for (let i = 0; i < adaptiveIterations; i++) {
+    // Continua finché non abbiamo abbastanza dati statisticamente significativi
+    while (validWorlds < minValidSamples && attempts < MAX_ATTEMPTS) {
+        attempts++;
+        
+        // Safety Break temporale (ogni 1000 tentativi controlla l'orologio)
+        if (attempts % 1000 === 0 && (performance.now() - startTime > MAX_TIME_MS)) {
+            break; 
+        }
+
         const s = potentialS[Math.floor(Math.random() * potentialS.length)];
         const w = potentialW[Math.floor(Math.random() * potentialW.length)];
         const r = potentialR[Math.floor(Math.random() * potentialR.length)];
         const hypothesis = [s, w, r];
 
-        let deck = [];
         let possible = true;
         
         // Quick fail check
@@ -313,6 +323,7 @@ function getProbabilities(iterations = 1000) {
         if (!possible) continue;
 
         // Build deck
+        let deck = [];
         allCards.forEach(c => {
             if (!hypothesis.includes(c)) {
                 let owned = false;
@@ -327,13 +338,13 @@ function getProbabilities(iterations = 1000) {
         });
         if (!possible) continue;
 
-        // Shuffle
+        // Shuffle (Fisher-Yates)
         for (let k = deck.length - 1; k > 0; k--) {
             const j = Math.floor(Math.random() * (k + 1));
             [deck[k], deck[j]] = [deck[j], deck[k]];
         }
 
-        // Deal
+        // Deal logic
         const handSlots = {};
         players.forEach(p => {
             let held = 0;
@@ -361,7 +372,7 @@ function getProbabilities(iterations = 1000) {
         }
         if (!dealValid) continue;
 
-        // Constraints
+        // Constraints Check
         let constraintsMet = true;
         for (const con of fixedConstraints) {
             let satisfies = false;
@@ -375,7 +386,7 @@ function getProbabilities(iterations = 1000) {
         }
         if (!constraintsMet) continue;
 
-        // Success
+        // Success: Questo è un mondo valido!
         validWorlds++;
         solCounts[s]++; solCounts[w]++; solCounts[r]++;
         
@@ -387,14 +398,16 @@ function getProbabilities(iterations = 1000) {
         });
     }
 
-    // FALLBACK: Se Monte Carlo ha fallito (0 mondi validi), usa distribuzione uniforme
+    // FALLBACK
     if (validWorlds === 0) {
+        // Se non ne troviamo nemmeno uno in MAX_ATTEMPTS, allora sì, usiamo fallback
         return createFallbackProbabilities(false);
     }
 
+    // Normalizzazione
     const solResults = {};
     const distResults = {};
-    const safeDiv = validWorlds;
+    const safeDiv = validWorlds; // Ora dividiamo per i mondi VALIDI trovati
 
     allCards.forEach(c => {
         if (grid[c].SOL === 2) solResults[c] = 1.0;
