@@ -10,7 +10,7 @@ await (async function runRealisticSimulation() {
     const MAX_TURNS = 200;
     const HERO_NAME = "HERO";
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "David", "Eve"];
-    const DESIRED_OPPONENTS = 3; // Numero di avversari da simulare (max 5)
+    const DESIRED_OPPONENTS = 2 + Math.floor(Math.random() * 4); // Tra 2 e 5 avversari
 
     // Palette Colori Semantica per la Console
     const LogTheme = {
@@ -69,6 +69,7 @@ await (async function runRealisticSimulation() {
     // 3. STATO DELLA SIMULAZIONE
     // ======================================================
     const selectedOpponents = OPPONENT_POOL.slice(0, DESIRED_OPPONENTS);
+    // Mischiamo l'ordine di seduta
     let seatOrder = [HERO_NAME, ...selectedOpponents].sort(() => Math.random() - 0.5);
 
     players = seatOrder;
@@ -99,13 +100,16 @@ await (async function runRealisticSimulation() {
     class SimPlayer {
         constructor(name, characterName) {
             this.name = name;
-            this.character = characterName;
+            this.character = characterName; // La pedina che muove sul tabellone
             this.hand = [];
             this.isEliminated = false;
             this.currentLocation = rooms[Math.floor(Math.random() * rooms.length)]; 
             this.targetLocation = null;
             this.squaresLeft = 0;
             this.inRoom = true; 
+            
+            // Flag per regola "Anti-Camper" (o Summoning)
+            // Se true, il giocatore è stato trascinato qui e può scegliere di restare senza tirare i dadi
             this.wasDragged = false;
             
             this.knownSolution = { s: null, w: null, r: null };
@@ -155,6 +159,7 @@ await (async function runRealisticSimulation() {
             let w = pick(this.memory.weapons, this.knownSolution.w) || weapons[0];
             let r = currentRoom;
 
+            // Piccola chance di bluff tattico
             if (Math.random() < 0.2) {
                 const mySuspects = this.hand.filter(c => suspects.includes(c));
                 const myWeapons = this.hand.filter(c => weapons.includes(c));
@@ -165,8 +170,16 @@ await (async function runRealisticSimulation() {
         }
     }
 
-    const simPlayers = players.map((p, i) => new SimPlayer(p, suspects[i] || "Unknown"));
+    // --- ASSEGNAZIONE RUOLI (PEDINE) ---
+    // Mescoliamo i sospettati per non avere sempre Scarlett come Player 1
+    const characterPool = shuffle([...suspects]); 
+    
+    const simPlayers = players.map((p, i) => {
+        // Assegnamo un personaggio univoco a ogni giocatore
+        return new SimPlayer(p, characterPool[i]);
+    });
 
+    // Distribuzione Carte
     let pIdx = 0;
     while(deck.length > 0) {
         simPlayers[pIdx].hand.push(deck.pop());
@@ -174,6 +187,7 @@ await (async function runRealisticSimulation() {
     }
     simPlayers.forEach(p => p.initMemory());
 
+    // Limiti carte (knowledge base del solver)
     const baseCount = Math.floor((allCards.length - 3) / players.length);
     const remainder = (allCards.length - 3) % players.length;
     players.forEach((p, index) => { limits[p] = baseCount + (index < remainder ? 1 : 0); });
@@ -181,9 +195,12 @@ await (async function runRealisticSimulation() {
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
     heroPlayer.hand.forEach(c => setFact(c, HERO_NAME, 2));
 
+    // Posizionamento Iniziale Pedine
+    // Tutte le pedine (anche quelle NPC) devono essere sulla board
     let tokenPositions = {}; 
     suspects.forEach(s => {
         const owner = simPlayers.find(p => p.character === s);
+        // Se la pedina è di un giocatore, usa la sua posizione. Altrimenti random.
         tokenPositions[s] = owner ? owner.currentLocation : rooms[Math.floor(Math.random() * rooms.length)];
     });
 
@@ -191,15 +208,27 @@ await (async function runRealisticSimulation() {
 
     function updateTokenLocation(character, newRoom, isForcedDrag = false) {
         tokenPositions[character] = newRoom;
+        
+        // Trova se questa pedina appartiene a un giocatore reale
         const player = simPlayers.find(p => p.character === character);
-        if (player && player.currentLocation !== newRoom) {
-            player.currentLocation = newRoom;
-            player.inRoom = true;
-            player.squaresLeft = 0;
+        
+        if (player) {
+            // Se il giocatore non è già nella stanza, lo spostiamo
+            if (player.currentLocation !== newRoom) {
+                player.currentLocation = newRoom;
+                player.inRoom = true;
+                player.squaresLeft = 0;
+            }
+            
+            // Logica Anti-Camper / Summoning Rule
+            // Se un giocatore viene chiamato in una stanza (anche se è la sua attuale),
+            // acquisisce il diritto di restare lì e fare un'ipotesi al turno successivo senza tirare i dadi.
             if (isForcedDrag) {
                 player.wasDragged = true;
                 player.targetLocation = null; 
+                // storyLog("⚠️", `${player.name} (${character}) è stato trascinato in ${newRoom}!`, LogTheme.WARN);
             } else if (player.targetLocation && newRoom !== player.targetLocation) {
+                // Se si sta muovendo normalmente verso un target ma viene spostato altrove
                 player.squaresLeft = getDistance(newRoom, player.targetLocation);
                 player.inRoom = false; 
             }
@@ -216,6 +245,14 @@ await (async function runRealisticSimulation() {
     console.log(`%c[${solution.join(", ")}]`, "color: #93c5fd; font-weight: bold;");
     console.groupEnd();
     
+    // LOG RUOLI - IMPORTANTE PER DEBUGGARE I MOVIMENTI
+    console.group("🎭 Assegnazione Ruoli");
+    simPlayers.forEach(p => {
+        const style = p.name === HERO_NAME ? LogTheme.HERO : "color: #9ca3af";
+        console.log(`%c${p.name}%c interpreta %c${p.character}`, style, "color: #6b7280", "color: #fbbf24; font-weight:bold;");
+    });
+    console.groupEnd();
+
     console.group("🃏 Distribuzione Carte");
     console.log(`%c${HERO_NAME} (${heroPlayer.hand.length}): %c${heroPlayer.hand.join(", ")}`, LogTheme.HERO, "color: #e5e7eb;");
     console.groupCollapsed("Altri Giocatori %c(Clicca per mostrare)", "color:#6b7280;");
@@ -250,11 +287,15 @@ await (async function runRealisticSimulation() {
     }
 
     function handleMovementPhase(player) {
+        // Qui controlliamo la regola Anti-Camper
         const canStay = player.wasDragged;
-        player.wasDragged = false; 
+        player.wasDragged = false; // Reset del flag all'inizio del turno
         
         let style = (player.name === HERO_NAME) ? LogTheme.HERO : LogTheme.HEADER;
-        let headerTxt = `(Posizione: ${player.currentLocation}${canStay ? ", può restare" : ""})`;
+        let headerTxt = `(Posizione: ${player.currentLocation}`;
+        if (canStay) headerTxt += `, può restare`;
+        headerTxt += `)`;
+        
         storyLog("▶️", `T${turnCount}: ${player.name} ${headerTxt}`, style);
 
         const preMoveSol = player.getSolutionAttempt();
@@ -282,6 +323,7 @@ await (async function runRealisticSimulation() {
             mockElements['current-position'].value = player.currentLocation; 
             let moves = calculateTacticalMoves(player.currentLocation);
             
+            // Regola: Se NON sono stato trascinato, DEVO muovermi (quindi filtro via la stanza corrente)
             if (!canStay) moves = moves.filter(m => m.room !== player.currentLocation);
             
             const valid = moves.filter(m => m.isCurrent || m.isSecret || m.dist <= dice);
@@ -293,8 +335,8 @@ await (async function runRealisticSimulation() {
                     player.targetLocation = best.room;
                     updateTokenLocation(player.character, best.room);
                     if (best.isSecret) storyLog("🚇", `Usa passaggio segreto -> ${best.room}`, LogTheme.MOVE);
-                    else if (!best.isCurrent) storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, LogTheme.MOVE);
-                    else storyLog("⚓️", "Resta nella stanza.", LogTheme.MOVE);
+                    else if (best.isCurrent) storyLog("⚓️", "Sceglie di restare nella stanza.", LogTheme.MOVE);
+                    else storyLog("🏃", `Raggiunge ${best.room} (Dadi: ${dice})`, LogTheme.MOVE);
                 } else {
                     player.targetLocation = best.room;
                     player.inRoom = false;
@@ -303,10 +345,12 @@ await (async function runRealisticSimulation() {
                 }
             }
         } else {
+            // AI Logic
             if (canStay) {
+                // L'AI tende a restare se è stata trascinata, per fare subito un'ipotesi
                 player.targetLocation = player.currentLocation;
                 player.squaresLeft = 0;
-                storyLog("⚓️", "Resta nella stanza.", LogTheme.MOVE);
+                storyLog("⚓️", "Sceglie di restare nella stanza (Trascinato).", LogTheme.MOVE);
             } else {
                 const dists = ROOM_DISTANCES[player.currentLocation];
                 let potential = Object.keys(dists).filter(r => r !== player.currentLocation);
@@ -438,7 +482,6 @@ await (async function runRealisticSimulation() {
             let hypothesis = { s: null, w: null, r: currentPlayer.currentLocation };
             
             if (currentPlayer.name === HERO_NAME) {
-                // FIX: Recupera le probabilità prima di chiamare generateHypothesisForRoom
                 const allProbs = (typeof getProbabilities === 'function') ? getProbabilities() : { solution: {}, distribution: {} };
                 const sug = generateHypothesisForRoom(currentPlayer.currentLocation, allProbs);
                 hypothesis.s = sug.suspect; hypothesis.w = sug.weapon;
@@ -449,7 +492,10 @@ await (async function runRealisticSimulation() {
                 storyLog("💬", `${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`, LogTheme.HYPOTHESIS);
             }
 
+            // --- AGGIORNAMENTO PEDINE DOPO IPOTESI (DRAGGING) ---
             if (tokenPositions[hypothesis.s] !== currentPlayer.currentLocation) {
+                // Sposta la pedina sospettata nella stanza corrente
+                // Il flag 'true' indica che è un movimento forzato (dragging)
                 updateTokenLocation(hypothesis.s, currentPlayer.currentLocation, true);
             }
 
