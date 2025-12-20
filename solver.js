@@ -281,19 +281,6 @@ function getProbabilities(minValidSamples = 500) {
         return createFallbackProbabilities(true);
     }
 
-    // Se risolto
-    if (potentialS.length === 1 && potentialW.length === 1 && potentialR.length === 1) {
-        // ... (codice invariato per la soluzione certa) ...
-        const solRes = {}; const distRes = {};
-        allCards.forEach(c => {
-            solRes[c] = (grid[c].SOL === 2 ? 1.0 : 0.0);
-            distRes[c] = {};
-            players.forEach(p => distRes[c][p] = (grid[c][p] === 2 ? 1.0 : 0.0));
-        });
-        probabilityCache = { solution: solRes, distribution: distRes };
-        return probabilityCache;
-    }
-
     // === MODIFICA CORE: Target su Mondi Validi, non Iterazioni ===
     let attempts = 0;
     const MAX_ATTEMPTS = 100000; // Limite sicurezza per evitare freeze infiniti
