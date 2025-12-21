@@ -232,8 +232,19 @@ function updateTacticalSuggestions() {
     const currentLoc = document.getElementById('current-position').value;
     const container = document.getElementById('tactical-suggestions');
     if (!currentLoc) { container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>'; return; }
+
+    // --- MODIFICA ANTI-CAMPER ---
+    // Leggi stato checkbox. Se non esiste (es. vecchie versioni HTML cache), assumi TRUE per sicurezza.
+    const chk = document.getElementById('can-stay-check');
+    const canStay = chk ? chk.checked : true; 
+
+    let rankedMoves = calculateTacticalMoves(currentLoc);
     
-    const rankedMoves = calculateTacticalMoves(currentLoc);
+    // Filtro anti-camper: se non posso restare, rimuovi la mossa che corrisponde alla stanza attuale
+    if (!canStay) {
+        rankedMoves = rankedMoves.filter(m => m.room !== currentLoc);
+    }
+
     // Mostriamo top 3, ma se la prima è Vittoria mostriamo chiaramente
     const top3 = rankedMoves.slice(0, 3);
     
