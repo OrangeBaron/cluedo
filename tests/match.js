@@ -46,7 +46,7 @@ await (async function runRealisticSimulation() {
     const MAX_TURNS = 200;
     const HERO_NAME = "Hero"; 
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "Dave", "Eve"];
-    const DESIRED_OPPONENTS = 3; 
+    const DESIRED_OPPONENTS = 2 + Math.floor(Math.random() * 4); 
 
     if (typeof initPathfinding === 'function') initPathfinding();
     else return console.error("tactics.js mancante.");
