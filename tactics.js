@@ -16,12 +16,11 @@ const ROOM_DISTANCES = {
 
 let TURN_MATRIX = {};
 
-// Probabilità cumulativa (CDF) di ottenere almeno X con 2d6
 const DICE_PROBS = [0, 0, 1.0, 0.97, 0.91, 0.83, 0.72, 0.58, 0.41, 0.27, 0.16, 0.08, 0.02];
 
 function getReachability(dist) {
-    if (dist <= 0) return 1.0; // Già lì o passaggio segreto
-    if (dist > 12) return 0.0; // Impossibile in 1 turno
+    if (dist <= 0) return 1.0;
+    if (dist > 12) return 0.0;
     return DICE_PROBS[dist];
 }
 
@@ -34,7 +33,7 @@ function initPathfinding() {
             } else {
                 const dist = ROOM_DISTANCES[r1][r2];
                 if (dist === 0) {
-                    TURN_MATRIX[r1][r2] = 1; // Passaggio segreto
+                    TURN_MATRIX[r1][r2] = 1;
                 } else {
                     TURN_MATRIX[r1][r2] = Math.ceil(dist / 7);
                 }
@@ -44,7 +43,7 @@ function initPathfinding() {
 }
 
 // ==========================================
-// 2. MOTORE ENTROPICO (Scienza della Deduzione)
+// 2. MOTORE ENTROPICO
 // ==========================================
 
 function shannonEntropy(p) {
@@ -53,31 +52,73 @@ function shannonEntropy(p) {
 }
 
 /**
+ * Calcola un punteggio bonus se la carta aiuta a risolvere un vincolo attivo.
+ * Esempio: Se sappiamo che "Player A ha [Mustard O Corda]", queste carte valgono di più.
+ */
+function getConstraintImpact(card) {
+    let score = 0;
+    // 'constraints' è una variabile globale definita in solver.js
+    if (typeof constraints === 'undefined' || !constraints) return 0;
+
+    constraints.forEach(con => {
+        if (con.cards.includes(card)) {
+            // Più il vincolo è ristretto, più la carta è preziosa.
+            // Un vincolo su 2 carte (50/50) dà un bonus enorme (5.0).
+            // Un vincolo su 6 carte dà un bonus piccolo (1.6).
+            score += (10.0 / con.cards.length);
+        }
+    });
+    return score;
+}
+
+/**
  * Seleziona la carta migliore per una categoria (Sospettato o Arma).
- * Logica V2:
- * 1. Priorità assoluta alle carte IGNOTE (per fare indagine).
- * 2. Se la categoria è RISOLTA (SOL=2), preferisce usare una carta PROPRIA (Shield) per nascondere la soluzione.
- * 3. Se costretto, usa la soluzione (Hammer).
- * 4. Evita sempre carte note in mano agli avversari.
+ * Logica (Integrata con Constraints):
+ * 1. Priorità assoluta alle carte che risolvono vincoli (Constraints Breaker).
+ * 2. Alta priorità a carte ignote ad alta entropia (Indagine).
+ * 3. Uso intelligente di carte proprie (Bluff) per nascondere la soluzione se nota.
+ * 4. Hammer (Checkmate) sulla soluzione se necessario.
  */
 function getSmartSelection(list, allProbs) {
     // Identificazione stato carte
     const confirmedSolution = list.find(c => grid[c].SOL === 2);
     // True Unknowns: Carte che non so chi ha (SOL=0) e che NON ho io.
     const trueUnknowns = list.filter(c => grid[c].SOL === 0 && grid[c][myName] !== 2);
-    // Shields: Carte che ho io (SOL=1 tecnicamente per gli altri, ma io so che sono mie)
+    // Shields: Carte che ho io
     const shields = list.filter(c => grid[c][myName] === 2);
 
-    // CASO 1: INDAGINE (Ci sono ancora carte ignote da scoprire)
+    // CASO 1: INDAGINE & CONSTRAINTS BREAKING
     if (trueUnknowns.length > 0) {
-        // Ordina per utilità (Probabilità alta + Entropia alta)
+        // Ordina per utilità (Probabilità + Entropia + IMPACT SUI VINCOLI)
         trueUnknowns.sort((a, b) => {
             const pA = allProbs.solution[a] || 0;
             const pB = allProbs.solution[b] || 0;
-            return (pB + shannonEntropy(pB)) - (pA + shannonEntropy(pA));
+            
+            // Calcolo base entropico
+            const scoreA = pA + shannonEntropy(pA);
+            const scoreB = pB + shannonEntropy(pB);
+            
+            // Boost derivante dai vincoli (Constraint Blindness Fix)
+            const constraintBonusA = getConstraintImpact(a);
+            const constraintBonusB = getConstraintImpact(b);
+
+            // Combina i punteggi (i vincoli pesano molto)
+            return (scoreB + constraintBonusB) - (scoreA + constraintBonusA);
         });
+
+        const best = trueUnknowns[0];
+        const impact = getConstraintImpact(best);
+        
+        if (impact > 2.0) {
+            return { 
+                card: best, 
+                type: "🔓 Breaker", 
+                desc: "Carta chiave per risolvere un vincolo logico." 
+            };
+        }
+
         return { 
-            card: trueUnknowns[0], 
+            card: best, 
             type: "🔬 Scientist", 
             desc: "Massimizza l'acquisizione di informazioni." 
         };
@@ -85,33 +126,30 @@ function getSmartSelection(list, allProbs) {
 
     // CASO 2: CATEGORIA RISOLTA (Sappiamo chi è il colpevole)
     if (confirmedSolution) {
-        // Sottocaso A: Ho delle carte mie in questa categoria?
-        // Se sì, le uso per BLUFFARE. Chiedendo una carta mia, non rivelo agli altri che so la soluzione.
+        // Sottocaso A: Ho delle carte mie? Bluffo per non svelare che so tutto.
         if (shields.length > 0) {
             const shield = shields[Math.floor(Math.random() * shields.length)];
             return {
                 card: shield,
                 type: "🛡️ Bluff Segreto",
-                desc: "Categoria risolta. Usa una tua carta per nascondere la soluzione agli avversari."
+                desc: "Categoria risolta. Usa una tua carta per nascondere la soluzione."
             };
         }
         
-        // Sottocaso B: Non ho carte mie. Sono costretto a chiedere la soluzione.
-        // Questo è rischioso (svela info), ma è l'unica mossa legale intelligente (non posso chiedere carte di avversari noti).
+        // Sottocaso B: Non ho carte mie. Chiedo la soluzione (Hammer).
+        // Nota: A Cluedo chiedere la soluzione è utile perché costringe a rispondere sulle altre categorie.
         return {
             card: confirmedSolution,
             type: "🔨 Hammer",
-            desc: "Soluzione nota e nessun scudo disponibile. Attacco diretto."
+            desc: "Attacco diretto alla soluzione per forzare risposte altrove."
         };
     }
 
-    // CASO 3: FALLBACK (Situazioni anomale o late-game con configurazioni strane)
-    // Se non ci sono unknowns e non c'è una soluzione marcata (improbabile), usiamo uno scudo o random safe.
+    // CASO 3: FALLBACK
     if (shields.length > 0) {
         return { card: shields[0], type: "🛡️ Shield", desc: "Fallback difensivo." };
     }
     
-    // Random tra quelle non scartate da altri (evitiamo di chiedere carte che sappiamo avere gli avversari)
     const valid = list.filter(c => grid[c].SOL !== 1);
     if(valid.length > 0) return { card: valid[Math.floor(Math.random() * valid.length)], type: "❓ Random", desc: "Fallback." };
 
@@ -119,20 +157,18 @@ function getSmartSelection(list, allProbs) {
 }
 
 function generateHypothesisForRoom(room, allProbs) {
-    // Sospettato
     const bestS = getSmartSelection(suspects, allProbs);
-    // Arma
     const bestW = getSmartSelection(weapons, allProbs);
 
-    // Calcolo probabilità combinate per la UI
     const pS = allProbs.solution[bestS.card] || 0;
     const pW = allProbs.solution[bestW.card] || 0;
 
     let stratName = bestS.type;
-    // Semplificazione nome strategia combinata
-    if (bestS.type.includes("Bluff") || bestW.type.includes("Bluff")) stratName = "🎭 Deception";
-    if (bestS.type.includes("Hammer") && bestW.type.includes("Hammer")) stratName = "👑 Checkmate";
-    if (bestS.type.includes("Scientist") && bestW.type.includes("Scientist")) stratName = "🔬 Indagine";
+    // Nomi combinati per la UI
+    if (bestS.type.includes("Breaker") || bestW.type.includes("Breaker")) stratName = "🔓 Logic Breaker";
+    else if (bestS.type.includes("Bluff") || bestW.type.includes("Bluff")) stratName = "🎭 Deception";
+    else if (bestS.type.includes("Hammer") && bestW.type.includes("Hammer")) stratName = "👑 Checkmate";
+    else if (bestS.type.includes("Scientist") && bestW.type.includes("Scientist")) stratName = "🔬 Indagine";
 
     return {
         suspect: bestS.card,
@@ -165,57 +201,62 @@ function calculateTacticalMoves(currentLoc) {
         const dist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
         const isSecret = !isCurrent && dist === 0;
         
-        // Calcolo Turni Stimati (Media roll 7)
+        // --- NUOVO CALCOLO TURNI (Risk-Aware) ---
         let turnsEst = 1;
-        if (!isCurrent && !isSecret) {
-            turnsEst = Math.ceil(dist / 7);
-            if (turnsEst < 1) turnsEst = 1;
-        }
+        let reachability = 1.0;
 
-        // Reachability immediata (per UI dadi)
-        let reachability = isCurrent || isSecret ? 1.0 : getReachability(dist);
+        if (isCurrent || isSecret) {
+            turnsEst = 0; // Siamo già qui (o passaggio istantaneo)
+            reachability = 1.0;
+        } else {
+            reachability = getReachability(dist);
+            
+            if (dist <= 12) {
+                // Se raggiungibile coi dadi, il costo non è un intero (es. 2 turni).
+                // È "1 turno + rischio di fallire".
+                // Se p=0.41 (dist 8), turnsEst = 1 + (1 - 0.41) = 1.59.
+                // Questo rende le distanze 8-9 molto più attraenti delle distanze >12.
+                turnsEst = 1 + (1 - reachability);
+            } else {
+                // Se fuori dalla portata dei dadi (dist > 12), usiamo la media
+                turnsEst = Math.ceil(dist / 7);
+            }
+        }
         
+        // Per display UI arrotondiamo, ma per i calcoli usiamo il float
+        const turnsDisplay = Math.round(turnsEst * 10) / 10;
+
         // --- CALCOLO PUNTEGGIO (SCORE) ---
         let utility = 0;
 
         if (isReadyToWin) {
-            // FASE FINALE: Corri alla soluzione
             if (room === rSol) utility = 10000;
             else utility = -1000;
-            
-            // Penalità distanza (meglio arrivare prima)
             utility -= turnsEst * 100;
         } else {
-            // FASE INVESTIGATIVA
-            
-            // 1. Valore della Stanza (Potenziale soluzione?)
+            // 1. Valore della Stanza
             utility += pRoom * 800; 
             if (!isKnownNo && !isMyRoom) utility += shannonEntropy(pRoom) * 300;
 
-            // 2. Valore dell'Ipotesi possibile
+            // 2. Valore dell'Ipotesi
             const hypo = generateHypothesisForRoom(room, allProbs);
+            
+            // Boost se stiamo rompendo vincoli
+            if (hypo.type.includes("Breaker")) utility += 400;
             if (hypo.type.includes("Scientist") || hypo.type.includes("Indagine")) utility += 150;
-            if (hypo.type.includes("Bluff") || hypo.type.includes("Deception")) utility += 80; // Utile per non svelare info
             if (hypo.type.includes("Checkmate")) utility += 500;
 
-            // 3. Penalità Stanze Inutili (Note o Mie)
+            // 3. Penalità Stanze Inutili
             if ((isMyRoom || isKnownNo) && !isCurrent) {
-                // Se la stanza è inutile, ci andiamo solo se l'ipotesi è MOLTO forte o se serve per muoversi
                 utility -= 150; 
             }
 
-            // 4. COSTO MOVIMENTO (TURNI)
+            // 4. COSTO MOVIMENTO (Risk-Adjusted)
             if (isCurrent) {
-                // Bonus pigrizia, ma non se stiamo camperando in una stanza inutile
-                if (pRoom < 0.05 && (isMyRoom || isKnownNo)) utility -= 250; // VATTENE!
+                if (pRoom < 0.05 && (isMyRoom || isKnownNo)) utility -= 250; 
                 else utility += 50; 
             } else {
-                // Penalità basata sul tempo (turni) e non sull'impossibilità immediata
-                // Un viaggio di 2 turni verso una stanza ottima è meglio di 1 turno verso una stanza inutile
-                utility -= (turnsEst - 1) * 200; // -200 per ogni turno extra di attesa
-                
-                // Penalità minore per distanza elevata anche nel singolo turno (rischio dadi)
-                if (turnsEst === 1 && dist > 7) utility -= (dist - 7) * 20;
+                utility -= (turnsEst) * 180; 
             }
         }
         
@@ -230,13 +271,14 @@ function calculateTacticalMoves(currentLoc) {
         }
         
         if (isSecret) reasons.push("🚇 Segreto");
+        else if (!isCurrent && dist <= 12 && reachability < 0.5) reasons.push("🎲 Rischio");
         
         return {
             room, 
             score: utility, 
             pRoom: Math.round(pRoom * 100),
             dist, 
-            turnsEst,
+            turnsEst: turnsDisplay,
             isSecret, 
             isCurrent, 
             reasons, 
@@ -259,7 +301,6 @@ function updateTacticalSuggestions() {
 
     let rankedMoves = calculateTacticalMoves(currentLoc);
     
-    // Filtro anti-camper
     if (!canStay) {
         rankedMoves = rankedMoves.filter(m => m.room !== currentLoc);
     }
@@ -273,12 +314,11 @@ function updateTacticalSuggestions() {
         let barColor = s.pRoom > 60 ? "var(--success)" : (s.pRoom > 20 ? "var(--accent)" : "var(--text-muted)");
         let rankClass = idx === 0 ? 'is-top' : 'is-standard';
         
-        // Logica etichetta movimento
         let moveInfo;
         if (s.isCurrent) moveInfo = "📍 QUI";
         else if (s.isSecret) moveInfo = "🚇 PASSAGGIO";
-        else if (s.turnsEst > 1) moveInfo = `⏱️ ~${s.turnsEst} turni`;
-        else moveInfo = `🎲 ${Math.round(s.reachability*100)}%`;
+        else if (s.dist <= 12) moveInfo = `🎲 ${Math.round(s.reachability*100)}%`;
+        else moveInfo = `⏱️ ~${Math.ceil(s.turnsEst)} turni`;
         
         if (s.reasons.includes("🏆 VITTORIA")) {
             rankClass = "is-top";
