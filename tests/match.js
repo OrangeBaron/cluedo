@@ -1,4 +1,5 @@
 // === CLUEDO REALISTIC MATCH SIMULATOR ===
+// (Versione corretta: Bot intelligenti sulle distanze)
 
 await (async function runRealisticSimulation() {
 
@@ -42,7 +43,7 @@ await (async function runRealisticSimulation() {
     // 1. CONFIGURAZIONE
     // ======================================================
     console.clear();
-    const SIM_SPEED = 1200; 
+    const SIM_SPEED = 1000; 
     const MAX_TURNS = 200;
     const HERO_NAME = "Hero"; 
     const OPPONENT_POOL = ["Alice", "Bob", "Charlie", "Dave", "Eve"];
@@ -69,9 +70,17 @@ await (async function runRealisticSimulation() {
             this.name = name;
             this.character = characterName;
             this.hand = [];
+            // Location logica (ultimo punto noto)
             this.currentLocation = rooms[Math.floor(Math.random() * rooms.length)]; 
-            this.targetLocation = null;
             this.wasDragged = false; 
+            
+            // Stato di viaggio per simulare i corridoi
+            this.travelState = {
+                active: false,
+                destination: null,
+                stepsLeft: 0
+            };
+
             this.memory = { suspects: [...suspects], weapons: [...weapons], rooms: [...rooms] };
         }
 
@@ -110,7 +119,7 @@ await (async function runRealisticSimulation() {
 
     const heroPlayer = simPlayers.find(p => p.name === HERO_NAME);
 
-    // Posizioni Pedine
+    // Posizioni Pedine (per log visivo e verifica coerenza)
     let tokenPositions = {}; 
     suspects.forEach(s => {
         const owner = simPlayers.find(p => p.character === s);
@@ -118,13 +127,18 @@ await (async function runRealisticSimulation() {
     });
 
     function updateTokenLocation(character, newRoom, isForcedDrag = false) {
+        if (!rooms.includes(newRoom)) return;
         tokenPositions[character] = newRoom;
         const player = simPlayers.find(p => p.character === character);
         if (player) {
-            player.currentLocation = newRoom;
+            // Se vengo trascinato, resetto il mio viaggio e la posizione
             if (isForcedDrag) {
+                player.currentLocation = newRoom;
                 player.wasDragged = true;
+                player.travelState = { active: false, destination: null, stepsLeft: 0 };
                 console.log(`${player.name} (${player.character}) è stato trascinato in ${newRoom}.`);
+            } else {
+                player.currentLocation = newRoom;
             }
         }
     }
@@ -141,26 +155,28 @@ await (async function runRealisticSimulation() {
     for (const pName of playersList) {
         typeInput('new-player', pName);
         clickButton('addPlayer'); 
-        await sleep(100);
+        await sleep(50);
     }
     selectOption('who-am-i', HERO_NAME);
-    await sleep(200);
+    await sleep(100);
     clickButton('goToHandSelection');
-    await sleep(300);
+    await sleep(200);
 
     const checkboxes = document.querySelectorAll('.init-card-check');
     checkboxes.forEach(chk => {
         if (heroPlayer.hand.includes(chk.value)) chk.click();
     });
-    await sleep(300);
+    await sleep(200);
     clickButton('finalizeSetup');
     console.log("--- PARTITA INIZIATA ---");
-    await sleep(800);
+    await sleep(500);
 
     // ======================================================
     // 4. LOGICA ACCUSA & LOOP
     // ======================================================
     function checkAndPerformAccusation(player) {
+        if (player.travelState.active) return false;
+
         let solS, solW, solR;
         let hasSol = false;
 
@@ -184,7 +200,7 @@ await (async function runRealisticSimulation() {
                 return true; 
             } else {
                 console.log(`%cACCUSA ERRATA!`, "color:red;");
-                return false;
+                return false; 
             }
         }
         return false;
@@ -192,7 +208,7 @@ await (async function runRealisticSimulation() {
 
     console.log(`%cSOLUZIONE: ${solution.join(", ").toUpperCase()}`, "background:darkgreen; color:white;");
     console.log(`%cMANO: ${heroPlayer.hand.join(", ")}`, "background:darkblue; color:white;");
-
+    
     let turnCount = 0;
     let currentPlayerIdx = Math.floor(Math.random() * simPlayers.length);
     let gameOver = false;
@@ -200,144 +216,193 @@ await (async function runRealisticSimulation() {
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
         const currentPlayer = simPlayers[currentPlayerIdx];
-        const canStay = currentPlayer.wasDragged;
-        currentPlayer.wasDragged = false;
         
-        console.log(`\n--- TURNO ${turnCount}: ${currentPlayer.name} (in ${currentPlayer.currentLocation}${canStay ? ", può restare" : ""}) ---`);
-        if (checkAndPerformAccusation(currentPlayer)) { gameOver = true; break; }
+        // --- GESTIONE STATO CORRENTE ---
+        const inHallway = currentPlayer.travelState.active;
+        const canStay = currentPlayer.wasDragged && !inHallway;
+        currentPlayer.wasDragged = false; 
+        
+        // Log Intestazione Turno
+        let locationMsg = inHallway 
+            ? `In corridoio per ${currentPlayer.travelState.destination}`
+            : currentPlayer.currentLocation;
+        
+        if (canStay) locationMsg += ", può restare";
+
+        console.log(`\n--- TURNO ${turnCount}: ${currentPlayer.name} (in ${locationMsg}) ---`);
 
         await sleep(SIM_SPEED);
 
-        let finalRoom = currentPlayer.currentLocation;
-        let moved = false;
-        let dice = 0;
+        // --- FASE 1: MOVIMENTO ---
+        let arrivedInRoom = false;
+        let canHypothesize = false;
+        
+        // CASO A: GIOCATORE GIÀ IN CORRIDOIO
+        if (inHallway) {
+            const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
+            let currentSteps = currentPlayer.travelState.stepsLeft;
+            if (isNaN(currentSteps)) { currentSteps = 0; } 
 
-        // >>> LOGICA EROE <<<
-        if (currentPlayer.name === HERO_NAME) {
-            // 1. Aggiorna UI affinché tactics.js legga lo stato corretto
-            selectOption('current-position', currentPlayer.currentLocation);
+            console.log(`Dadi (Corridoio): ${dice} (Mancano: ${currentSteps})`);
             
-            setCheckbox('can-stay-check', canStay); 
+            currentPlayer.travelState.stepsLeft = currentSteps - dice;
             
-            // Forza aggiornamento suggerimenti basato sulla nuova UI
-            if (typeof updateTacticalSuggestions === 'function') updateTacticalSuggestions();
-            
-            // 2. Leggi le opzioni tattiche
-            const suggestions = calculateTacticalMoves(currentPlayer.currentLocation);
-            
-            // Il "bestMove" teorico (senza considerare i dadi per ora)
-            // tactics.js ordina già per punteggio. 
-            let topWish = suggestions[0];
-
-            // 3. PRENDI UNA DECISIONE
-            
-            // OPZIONE A: RESTARE
-            if (topWish.room === currentPlayer.currentLocation && canStay) {
-                console.log(`Tactic: Decido di RESTARE in ${topWish.room}.`);
-                moved = true; // È considerato "essere in stanza" per fare ipotesi
-                finalRoom = currentPlayer.currentLocation;
-            }
-            // OPZIONE B: PASSAGGIO SEGRETO
-            else if (topWish.isSecret) {
-                console.log(`Tactic: Uso il PASSAGGIO SEGRETO per ${topWish.room}.`);
-                updateTokenLocation(currentPlayer.character, topWish.room);
-                finalRoom = topWish.room;
-                moved = true;
-                selectOption('current-position', finalRoom);
-            }
-            // OPZIONE C: LANCIARE I DADI
-            else {
-                dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
-                console.log(`Tactic: Lancio i dadi: ${dice}`);
-                
-                const reachableMoves = suggestions.filter(m => 
-                    m.dist <= dice && 
-                    !m.isSecret && 
-                    m.room !== currentPlayer.currentLocation
-                );
-
-                if (reachableMoves.length > 0) {
-                    const bestMove = reachableMoves[0];
-                    console.log(`Tactic: Vado in ${bestMove.room}.`);
-                    updateTokenLocation(currentPlayer.character, bestMove.room);
-                    finalRoom = bestMove.room;
-                    moved = true;
-                    selectOption('current-position', finalRoom);
-                } else {
-                    console.log(`Nessuna stanza raggiungibile con ${dice}. Resto in corridoio.`);
-                    moved = false;
-                }
+            if (currentPlayer.travelState.stepsLeft <= 0) {
+                const dest = currentPlayer.travelState.destination;
+                updateTokenLocation(currentPlayer.character, dest);
+                currentPlayer.travelState = { active: false, destination: null, stepsLeft: 0 };
+                console.log(`Arrivato in ${dest}.`);
+                arrivedInRoom = true;
+                canHypothesize = true;
+                if (currentPlayer.name === HERO_NAME) selectOption('current-position', dest);
+            } else {
+                console.log(`Resta in corridoio. Passi rimanenti: ${currentPlayer.travelState.stepsLeft}`);
+                canHypothesize = false;
             }
         } 
-        // >>> LOGICA BOT <<<
-        else {            
-            let choice = "roll";
+        // CASO B: GIOCATORE IN UNA STANZA (Inizio Movimento)
+        else {
+            if (checkAndPerformAccusation(currentPlayer)) { gameOver = true; break; }
+
+            // Scelta Destinazione
+            let targetRoom = null;
+            let useSecret = false;
             
-            // Se può restare, piccola chance di farlo (se non è stupido)
-            if (canStay && Math.random() > 0.3) {
-                choice = "stay";
+            if (currentPlayer.name === HERO_NAME) {
+                // Logica Hero: Usa i suggerimenti tattici
+                selectOption('current-position', currentPlayer.currentLocation);
+                setCheckbox('can-stay-check', canStay);
+                if (typeof updateTacticalSuggestions === 'function') updateTacticalSuggestions();
+                
+                let moves = calculateTacticalMoves(currentPlayer.currentLocation);
+                if (!canStay) moves = moves.filter(m => m.room !== currentPlayer.currentLocation);
+
+                const bestMove = moves[0]; 
+                
+                if (bestMove && bestMove.room === currentPlayer.currentLocation && canStay) {
+                    console.log(`Tactic: Decido di RESTARE in ${currentPlayer.currentLocation}.`);
+                    arrivedInRoom = true;
+                    canHypothesize = true;
+                } else if (bestMove) {
+                    targetRoom = bestMove.room;
+                    useSecret = bestMove.isSecret;
+                }
+            } 
+            else {
+                // >>> LOGICA BOT AGGIORNATA <<<
+                // Priorità: Restare (se utile) > Stanza Ignota Vicina > Stanza Ignota Lontana > Random
+                
+                let decidedToStay = false;
+                if (canStay && currentPlayer.memory.rooms.includes(currentPlayer.currentLocation)) {
+                    // Se la stanza è ancora ignota, c'è una buona probabilità di restare per fare un'ipotesi
+                    if (Math.random() > 0.3) {
+                         console.log(`${currentPlayer.name} decide di RESTARE in ${currentPlayer.currentLocation}.`);
+                         decidedToStay = true;
+                         arrivedInRoom = true;
+                         canHypothesize = true;
+                    }
+                }
+
+                if (!decidedToStay) {
+                    const potentialTargets = rooms.filter(r => r !== currentPlayer.currentLocation);
+                    // Filtra solo le stanze che il bot non ha ancora escluso (Candidate)
+                    const smartTargets = potentialTargets.filter(r => currentPlayer.memory.rooms.includes(r));
+                    
+                    if (smartTargets.length > 0) {
+                        // Ordina le stanze candidate per distanza (Passaggi segreti = dist 0)
+                        smartTargets.sort((a, b) => {
+                            const distA = (ROOM_DISTANCES[currentPlayer.currentLocation] && ROOM_DISTANCES[currentPlayer.currentLocation][a]) || 99;
+                            const distB = (ROOM_DISTANCES[currentPlayer.currentLocation] && ROOM_DISTANCES[currentPlayer.currentLocation][b]) || 99;
+                            return distA - distB;
+                        });
+
+                        // Prende una delle 2 più vicine per evitare di andare dall'altra parte del tabellone
+                        // se c'è una stanza ignota a due passi.
+                        const candidates = smartTargets.slice(0, 2);
+                        targetRoom = candidates[Math.floor(Math.random() * candidates.length)];
+                    } else {
+                        // Se tutte le stanze sono note (o innocenti), va a caso
+                        targetRoom = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
+                    }
+
+                    // Check passaggi segreti per il target scelto
+                    const distCheck = (ROOM_DISTANCES[currentPlayer.currentLocation] && ROOM_DISTANCES[currentPlayer.currentLocation][targetRoom]) || 99;
+                    if (distCheck === 0) useSecret = true;
+                }
             }
 
-            if (choice === "stay") {
-                console.log(`${currentPlayer.name} decide di RESTARE in ${finalRoom}.`);
-                moved = true;
-            } else {
-                dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
-                // Logica semplificata: cerca stanze raggiungibili
-                const dists = ROOM_DISTANCES[currentPlayer.currentLocation];
-                const possible = Object.keys(dists).filter(r => 
-                   (dists[r] <= dice || dists[r] === 0) && r !== currentPlayer.currentLocation
-                );
-
-                if (possible.length > 0) {
-                    const smart = possible.filter(r => currentPlayer.memory.rooms.includes(r));
-                    const dest = (smart.length > 0) 
-                       ? smart[Math.floor(Math.random() * smart.length)]
-                       : possible[Math.floor(Math.random() * possible.length)];
-                       
-                    updateTokenLocation(currentPlayer.character, dest);
-                    finalRoom = dest;
-                    console.log(`${currentPlayer.name} va in ${dest} (Dadi: ${dice})`);
-                    moved = true;
+            // Esecuzione Movimento verso targetRoom
+            if (targetRoom) {
+                if (useSecret) {
+                    console.log(`Usa Passaggio Segreto per ${targetRoom}.`);
+                    updateTokenLocation(currentPlayer.character, targetRoom);
+                    arrivedInRoom = true;
+                    canHypothesize = true;
+                    if (currentPlayer.name === HERO_NAME) selectOption('current-position', targetRoom);
                 } else {
-                    console.log(`${currentPlayer.name} resta in corridoio (Dadi: ${dice}).`);
-                    moved = false;
+                    const dice = Math.ceil(Math.random() * 6) + Math.ceil(Math.random() * 6);
+                    let dist = 99;
+                    if (currentPlayer.currentLocation === targetRoom) {
+                        dist = 0;
+                    } else if (ROOM_DISTANCES[currentPlayer.currentLocation] && typeof ROOM_DISTANCES[currentPlayer.currentLocation][targetRoom] !== 'undefined') {
+                        dist = ROOM_DISTANCES[currentPlayer.currentLocation][targetRoom];
+                    }
+
+                    console.log(`Dadi: ${dice} (Target: ${targetRoom}, Distanza: ${dist})`);
+                    
+                    if (dice >= dist) {
+                        console.log(`Raggiunge direttamente ${targetRoom}.`);
+                        updateTokenLocation(currentPlayer.character, targetRoom);
+                        arrivedInRoom = true;
+                        canHypothesize = true;
+                        if (currentPlayer.name === HERO_NAME) selectOption('current-position', targetRoom);
+                    } else {
+                        const remaining = dist - dice;
+                        currentPlayer.travelState = {
+                            active: true,
+                            destination: targetRoom,
+                            stepsLeft: remaining
+                        };
+                        console.log(`Si ferma in corridoio. Passi rimanenti: ${remaining}`);
+                        canHypothesize = false;
+                        if (currentPlayer.name === HERO_NAME) {
+                             const posEl = document.getElementById('current-position');
+                             if(posEl) posEl.value = ""; 
+                        }
+                    }
                 }
             }
         }
 
         // --- FASE 2: AZIONE (IPOTESI) ---
-        if (moved) { 
+        if (canHypothesize) { 
             if (checkAndPerformAccusation(currentPlayer)) { gameOver = true; break; }
 
             const currentRoom = currentPlayer.currentLocation;
             let hypothesis;
             
             if (currentPlayer.name === HERO_NAME) {
-                // Recupera l'ipotesi suggerita per la stanza in cui siamo effettivamente finiti
                 const suggestions = calculateTacticalMoves(currentRoom);
                 const currentSpotData = suggestions.find(m => m.room === currentRoom);
-                
                 if (currentSpotData && currentSpotData.hypothesis) {
                     hypothesis = {
                         s: currentSpotData.hypothesis.suspect,
                         w: currentSpotData.hypothesis.weapon,
                         r: currentRoom
                     };
-                    console.log(`Ipotesi Tattica: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`);
                 } else {
                     hypothesis = currentPlayer.generateHypothesis(currentRoom);
                 }
             } else {
                 hypothesis = currentPlayer.generateHypothesis(currentRoom);
-                console.log(`${currentPlayer.name} ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`);
             }
+            
+            console.log(`Ipotizza: ${hypothesis.s}, ${hypothesis.w}, ${hypothesis.r}`);
 
             if (tokenPositions[hypothesis.s] !== currentRoom) {
                 updateTokenLocation(hypothesis.s, currentRoom, true);
             }
 
-            // Sync UI Taccuino
             selectOption('turn-asker', currentPlayer.name);
             selectOption('turn-suspect', hypothesis.s);
             selectOption('turn-weapon', hypothesis.w);
@@ -369,7 +434,7 @@ await (async function runRealisticSimulation() {
                 selectOption('turn-card-shown', cardShown);
             }
 
-            await sleep(500);
+            await sleep(200);
             clickButton('submitTurn'); 
         }
 
