@@ -1,4 +1,7 @@
-// --- MAP DATA & CONSTANTS ---
+// ==========================================
+// 1. DATI STATICI & FISICA (Distanze & Dadi)
+// ==========================================
+
 const ROOM_DISTANCES = {
     "Cucina":{"Ballo":7,"Serra":20,"Biliardo":17,"Biblioteca":23,"Studio":0,"Ingresso":18,"Veranda":19,"Pranzo":11},
     "Ballo":{"Cucina":7,"Serra":4,"Biliardo":6,"Biblioteca":12,"Studio":17,"Ingresso":13,"Veranda":15,"Pranzo":7},
@@ -11,341 +14,266 @@ const ROOM_DISTANCES = {
     "Pranzo":{"Cucina":11,"Ballo":7,"Serra":19,"Biliardo":14,"Biblioteca":14,"Studio":17,"Ingresso":8,"Veranda":4}
 };
 
-let TURN_MATRIX = {};
+// Matrice dei costi reali (Turni stimati) ottimizzata con Floyd-Warshall
+let TRAVEL_COSTS = {};
 
-// --- PATHFINDING INIT ---
+// Probabilità cumulativa (CDF) di ottenere almeno X con 2d6
+const DICE_PROBS = [0, 0, 1.0, 0.97, 0.91, 0.83, 0.72, 0.58, 0.41, 0.27, 0.16, 0.08, 0.02];
+
+function getReachability(dist) {
+    if (dist <= 0) return 1.0; 
+    if (dist > 12) return 0.0; 
+    return DICE_PROBS[dist];
+}
+
+// Calcola il costo base (in turni) di uno spostamento diretto
+function calculateDirectCost(dist) {
+    if (dist === 0) return 1.0; // Passaggio segreto = 1 turno
+    
+    // Se raggiungibile con i dadi (<=12), costo = 1 turno + rischio fallimento
+    if (dist <= 12) {
+        const p = getReachability(dist);
+        return 1.0 + (1.0 - p);
+    }
+    
+    // Se irraggiungibile con un tiro solo, media matematica
+    return Math.ceil(dist / 7);
+}
+
 function initPathfinding() {
+    // 1. Inizializzazione con costi diretti
     rooms.forEach(r1 => {
-        TURN_MATRIX[r1] = {};
+        TRAVEL_COSTS[r1] = {};
         rooms.forEach(r2 => {
             if (r1 === r2) {
-                TURN_MATRIX[r1][r2] = 0;
+                TRAVEL_COSTS[r1][r2] = 0;
             } else {
                 const dist = ROOM_DISTANCES[r1][r2];
-                if (dist === 0) {
-                    TURN_MATRIX[r1][r2] = 1; 
-                } else {
-                    TURN_MATRIX[r1][r2] = Math.ceil(dist / 7);
-                }
+                TRAVEL_COSTS[r1][r2] = calculateDirectCost(dist);
             }
         });
     });
 
-    // Floyd-Warshall Algorithm for All-Pairs Shortest Paths
+    // 2. Ottimizzazione Floyd-Warshall (Trova le scorciatoie)
+    // Controlla se passare per una stanza intermedia 'k' è più veloce che andare diretti
     rooms.forEach(k => {
         rooms.forEach(i => {
             rooms.forEach(j => {
-                const alternativePath = TURN_MATRIX[i][k] + TURN_MATRIX[k][j];
-                if (alternativePath < TURN_MATRIX[i][j]) {
-                    TURN_MATRIX[i][j] = alternativePath;
+                // Costo passando per k (i->k + k->j)
+                const detourCost = TRAVEL_COSTS[i][k] + TRAVEL_COSTS[k][j]; 
+                
+                if (detourCost < TRAVEL_COSTS[i][j]) {
+                    TRAVEL_COSTS[i][j] = detourCost;
                 }
             });
         });
     });
 }
 
-// --- STATISTICAL HELPERS ---
+// ==========================================
+// 2. MOTORE ENTROPICO & LOGICA
+// ==========================================
 
-/**
- * Calcola la "Densità" di una carta ignota.
- * Punteggio alto = Molto probabile che sia in mano a un avversario (tanti slot liberi).
- * Punteggio basso = Probabile che sia nella Busta (o in mano a uno con pochi slot).
- */
-function getCardDensity(card) {
-    if (!card || !grid[card] || grid[card].SOL !== 0) return 0; // Solo per carte ignote
-    
-    let density = 0;
-    players.forEach(p => {
-        if (p === myName) return;
-        
-        // Se il giocatore PUÒ avere la carta (non c'è un 'NO' sicuro)
-        if (grid[card][p] !== 1) {
-            // Conta slot bui (Carte totali - Carte viste)
-            const seen = allCards.filter(c => grid[c][p] === 2).length;
-            const slots = (limits[p] || 0) - seen;
-            
-            // Ogni slot buio aumenta la probabilità che la carta sia qui
-            if (slots > 0) density += slots;
-        }
-    });
-    return density;
+function shannonEntropy(p) {
+    if (p <= 0 || p >= 1) return 0;
+    return -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
 }
 
-/**
- * Calcola il "Rejection Count" (Quanti giocatori hanno detto NO a questa carta).
- * Usato per la strategia "Ghost Protocol".
- */
-function getRejectionCount(card) {
-    if (!card || !grid[card]) return 0;
-    let count = 0;
-    players.forEach(p => {
-        if (p !== myName && grid[card][p] === 1) count++; // 1 = NON CE L'HA
+function getConstraintImpact(card) {
+    let score = 0;
+    if (typeof constraints === 'undefined' || !constraints) return 0;
+    constraints.forEach(con => {
+        if (con.cards.includes(card)) score += (10.0 / con.cards.length);
     });
-    return count;
+    return score;
 }
 
-// --- TACTICAL ENGINE ---
+function getSmartSelection(list, allProbs) {
+    const confirmedSolution = list.find(c => grid[c].SOL === 2);
+    const trueUnknowns = list.filter(c => grid[c].SOL === 0 && grid[c][myName] !== 2);
+    const shields = list.filter(c => grid[c][myName] === 2);
 
-function generateHypothesisForRoom(targetRoom, isLateGame = false) {
-    const pickRandom = (arr) => arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
-    
-    // Helper: Seleziona la carta con la Densità più alta (Massimizza info gain)
-    const pickBestDensity = (arr) => {
-        if (!arr || arr.length === 0) return null;
-        // Ordina per densità decrescente
-        const sorted = [...arr].sort((a, b) => getCardDensity(b) - getCardDensity(a));
-        return sorted[0];
-    };
-
-    const unknownS = suspects.filter(c => grid[c].SOL === 0);
-    const unknownW = weapons.filter(c => grid[c].SOL === 0);
-    
-    // Carte sicure da usare come "Scudo" (Shielding)
-    const safeS = suspects.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
-    const safeW = weapons.filter(c => grid[c][myName] === 2 || grid[c].SOL === 2);
-
-    let bestS, bestW, strategyType = "Standard";
-
-    // --- GHOST PROTOCOL (NEW STRATEGY) ---
-    // Cerca carte che sono già state smentite da molti giocatori ma non sono ancora risolte.
-    // L'obiettivo è "chiudere il cerchio" (Intersection Targeting).
-    
-    const ghostS = unknownS.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
-    const ghostW = unknownW.sort((a,b) => getRejectionCount(b) - getRejectionCount(a))[0];
-    
-    const activeOpponents = players.length - 1; 
-    const rejectionThreshold = Math.max(1, Math.floor(activeOpponents / 2)); 
-
-    // CASO 1: GHOST SUSPECT FOUND
-    // Se c'è un sospettato molto smentito e abbiamo un'arma sicura da usare come scudo
-    if (ghostS && getRejectionCount(ghostS) >= rejectionThreshold && safeW.length > 0) {
-        bestS = ghostS;
-        bestW = safeW[Math.floor(Math.random() * safeW.length)]; // Usa scudo arma
-        strategyType = "👻 Sospettato Fantasma";
-    }
-    // CASO 2: GHOST WEAPON FOUND
-    // Se c'è un'arma molto smentita e abbiamo un sospettato sicuro da usare come scudo
-    else if (ghostW && getRejectionCount(ghostW) >= rejectionThreshold && safeS.length > 0) {
-        bestS = safeS[Math.floor(Math.random() * safeS.length)]; // Usa scudo sospettato
-        bestW = ghostW;
-        strategyType = "👻 Arma Fantasma";
-    }
-    // CASO 3: LOGICA CLASSICA (Fallback)
-    else {
-        const pickTarget = (unknownList, allList) => {
-            if (unknownList.length > 0) return pickBestDensity(unknownList); // USA LA DENSITÀ
-            return pickRandom(allList); 
-        };
-
-        const pickShield = (safeList, unknownList, allList) => {
-            if (safeList.length > 0) return pickRandom(safeList);
-            if (unknownList.length > 0) return pickBestDensity(unknownList);
-            return pickRandom(allList);
-        };
-
-        const isRoomSafe = (grid[targetRoom][myName] === 2 || grid[targetRoom].SOL === 2);
-
-        if (isLateGame) {
-            const needS = unknownS.length > 0;
-            const needW = unknownW.length > 0;
-
-            if (needS && needW) {
-                if (isRoomSafe) {
-                    bestS = pickTarget(unknownS, suspects);
-                    bestW = pickTarget(unknownW, weapons);
-                    strategyType = "Aggressiva";
-                } else {
-                    // Mix difensivo
-                    if (Math.random() < 0.5 && safeS.length > 0) {
-                        bestS = pickShield(safeS, unknownS, suspects);
-                        bestW = pickTarget(unknownW, weapons);
-                        strategyType = "Bilanciata (S)";
-                    } else {
-                        bestS = pickTarget(unknownS, suspects);
-                        bestW = pickShield(safeW, unknownW, weapons);
-                        strategyType = "Bilanciata (W)";
-                    }
-                }
-            } else if (needS) {
-                bestS = pickTarget(unknownS, suspects);
-                bestW = pickShield(safeW, unknownW, weapons);
-                strategyType = "Cecchino (S)";
-            } else if (needW) {
-                bestS = pickShield(safeS, unknownS, suspects);
-                bestW = pickTarget(unknownW, weapons);
-                strategyType = "Cecchino (W)";
-            } else {
-                bestS = pickShield(safeS, unknownS, suspects);
-                bestW = pickShield(safeW, unknownW, weapons);
-                strategyType = "Bluff Totale";
-            }
-        } else {
-            // EARLY GAME
-            if (isRoomSafe) {
-                bestS = pickTarget(unknownS, suspects);
-                bestW = pickTarget(unknownW, weapons);
-                strategyType = "Aggressiva (Early)";
-            } else {
-                if (Math.random() < 0.5) {
-                    bestS = pickShield(safeS, unknownS, suspects);
-                    bestW = pickTarget(unknownW, weapons);
-                    strategyType = "Bilanciata";
-                } else {
-                    bestS = pickTarget(unknownS, suspects);
-                    bestW = pickShield(safeW, unknownW, weapons);
-                    strategyType = "Bilanciata";
-                }
-            }
-        }
+    if (trueUnknowns.length > 0) {
+        trueUnknowns.sort((a, b) => {
+            const pA = allProbs.solution[a] || 0;
+            const pB = allProbs.solution[b] || 0;
+            const scoreA = pA + shannonEntropy(pA) + getConstraintImpact(a);
+            const scoreB = pB + shannonEntropy(pB) + getConstraintImpact(b);
+            return scoreB - scoreA;
+        });
+        const best = trueUnknowns[0];
+        if (getConstraintImpact(best) > 2.0) return { card: best, type: "🔓 Breaker", desc: "Risolve vincolo." };
+        return { card: best, type: "🔬 Scientist", desc: "Info max." };
     }
 
-    if (!bestS) bestS = suspects[0];
-    if (!bestW) bestW = weapons[0];
+    if (confirmedSolution) {
+        if (shields.length > 0) return { card: shields[Math.floor(Math.random()*shields.length)], type: "🛡️ Bluff Segreto", desc: "Nascondi soluzione." };
+        return { card: confirmedSolution, type: "🔨 Hammer", desc: "Attacco finale." };
+    }
 
-    return { 
-        suspect: bestS, 
-        weapon: bestW, 
-        text: `<b>${bestS}</b> + <b>${bestW}</b>`, 
-        type: strategyType 
+    if (shields.length > 0) return { card: shields[0], type: "🛡️ Shield", desc: "Fallback." };
+    const valid = list.filter(c => grid[c].SOL !== 1);
+    if(valid.length > 0) return { card: valid[Math.floor(Math.random() * valid.length)], type: "❓ Random", desc: "Fallback." };
+    return { card: list[0], type: "💀 Panic", desc: "Nessuna opzione." };
+}
+
+function generateHypothesisForRoom(room, allProbs) {
+    const bestS = getSmartSelection(suspects, allProbs);
+    const bestW = getSmartSelection(weapons, allProbs);
+    
+    let stratName = bestS.type;
+    if (bestS.type.includes("Breaker") || bestW.type.includes("Breaker")) stratName = "🔓 Logic Breaker";
+    else if (bestS.type.includes("Bluff") || bestW.type.includes("Bluff")) stratName = "🎭 Deception";
+    else if (bestS.type.includes("Hammer") && bestW.type.includes("Hammer")) stratName = "👑 Checkmate";
+    else if (bestS.type.includes("Scientist") && bestW.type.includes("Scientist")) stratName = "🔬 Indagine";
+
+    return {
+        suspect: bestS.card, weapon: bestW.card,
+        text: `<b>${bestS.card}</b> + <b>${bestW.card}</b>`,
+        type: stratName,
+        probS: allProbs.solution[bestS.card] || 0,
+        probW: allProbs.solution[bestW.card] || 0
     };
 }
 
 function calculateTacticalMoves(currentLoc) {
     if (!currentLoc || !ROOM_DISTANCES[currentLoc]) return [];
+    
+    // Assicuriamoci che i path siano calcolati
+    if (Object.keys(TRAVEL_COSTS).length === 0) initPathfinding();
 
-    const unknownCount = allCards.filter(c => grid[c].SOL === 0).length;
-    const isLateGame = unknownCount <= Math.ceil(allCards.length * 0.4); 
-    const isGameSolved = grid[suspects.find(c=>grid[c].SOL===2)] && grid[weapons.find(c=>grid[c].SOL===2)] && grid[rooms.find(c=>grid[c].SOL===2)];
+    const allProbs = typeof getProbabilities === 'function' ? getProbabilities() : { solution: {} };
+    const solProbs = allProbs.solution;
+    
+    const sSol = suspects.find(c => grid[c].SOL === 2);
+    const wSol = weapons.find(c => grid[c].SOL === 2);
+    const rSol = rooms.find(c => grid[c].SOL === 2);
+    const isReadyToWin = sSol && wSol && rSol;
 
     let moves = rooms.map(room => {
-        let score = 0, reasons = [];
-        let hypothesis;
-
-        if (isGameSolved) {
-            hypothesis = { suspect: null, weapon: null, text: "🏆 VAI AD ACCUSARE!", type: "Vittoria" };
-        } else {
-            hypothesis = generateHypothesisForRoom(room, isLateGame);
-        }
-        
-        const isCurrent = room === currentLoc;
-        const dist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
-        const isSecret = !isCurrent && dist === 0; 
-        const trueTurns = isCurrent ? 0 : (TURN_MATRIX[currentLoc] ? TURN_MATRIX[currentLoc][room] : 99);
-        const diceReach = !isCurrent && !isSecret && (dist <= 10); 
-        const solStatus = grid[room].SOL; 
+        const pRoom = solProbs[room] || 0;
         const isMyRoom = grid[room][myName] === 2;
+        const isKnownNo = grid[room].SOL === 1; 
+        const isCurrent = room === currentLoc;
         
-        // Verifica se la stanza è posseduta da un avversario (Bruciata)
-        let ownedByEnemy = false;
-        players.forEach(p => {
-             if (p !== myName && grid[room][p] === 2) ownedByEnemy = true;
-        });
+        // Dati fisici diretti (per la UI)
+        const directDist = isCurrent ? 0 : ROOM_DISTANCES[currentLoc][room];
+        const isSecret = !isCurrent && directDist === 0;
+        const reachability = getReachability(directDist);
 
-        // --- 1. VALORE BASE ---
-        if (solStatus === 2) { 
-            score += 5000; reasons.push("🏆 DELITTO"); 
-        } else if (solStatus === 0) { 
-            score += 200; reasons.push("🔍 Ignota"); 
-        } else if (isMyRoom) { 
-            score += 100; reasons.push("🛡️ Base"); 
-        } else if (ownedByEnemy) { 
-            score -= 1000; reasons.push("💩 Bruciata");
-        } else { 
-            score -= 50; reasons.push("❌ Innocente"); 
-        }
+        // COSTO REALE (Floyd-Warshall)
+        const turnsEst = isCurrent ? 0 : TRAVEL_COSTS[currentLoc][room];
 
-        // --- 2. BONUS STRATEGIA ---
-        if (hypothesis.type.includes("Ghost")) {
-            score += 500; reasons.push("👻 Fantasma");
-        }
-        if (hypothesis.type.includes("Cecchino")) {
-            score += 300; reasons.push("🎯 Cecchino");
-        }
-        if (hypothesis.type.includes("Aggressiva")) {
-            score += 150; reasons.push("🔥 Aggro");
-        }
+        // --- SCORE ---
+        let utility = 0;
 
-        // --- 3. COSTO MOVIMENTO ---
-        if (isCurrent) {
-            if (ownedByEnemy) {
-                score -= 500; reasons.push("⚠️ Bruciata");
-            } else if (solStatus === 0 || isMyRoom || solStatus === 2) {
-                score += 1200; reasons.push("✅ Resta"); 
-            } else {
-                score -= 200; reasons.push("💨 Via!");
-            }
-        } else if (isSecret) {
-            score += 900; reasons.push("🚇 Segreto"); 
+        if (isReadyToWin) {
+            if (room === rSol) utility = 10000; 
+            else utility = -1000;
+            utility -= turnsEst * 100; // Penalità distanza reale
         } else {
-            if (dist <= 7) {
-                score -= (trueTurns * 80); 
-                reasons.push("🎲 Facile");
-            } else if (dist <= 9) {
-                score -= 300; 
-                reasons.push("⚠️ Rischio");
+            // Valore Stanza
+            utility += pRoom * 800;
+            if (!isKnownNo && !isMyRoom) utility += shannonEntropy(pRoom) * 300;
+
+            // Valore Ipotesi
+            const hypo = generateHypothesisForRoom(room, allProbs);
+            if (hypo.type.includes("Breaker")) utility += 400;
+            if (hypo.type.includes("Scientist") || hypo.type.includes("Indagine")) utility += 150;
+            if (hypo.type.includes("Checkmate")) utility += 500;
+
+            // Malus stanze inutili
+            if ((isMyRoom || isKnownNo) && !isCurrent) utility -= 150;
+
+            // Penalità Movimento basata sul PERCORSO MIGLIORE
+            if (isCurrent) {
+                if (pRoom < 0.05 && (isMyRoom || isKnownNo)) utility -= 250; 
+                else utility += 50; 
             } else {
-                score -= (trueTurns * 100); 
+                utility -= turnsEst * 180; 
             }
         }
-
-        // --- 4. BONUS DENSITÀ STATISTICA ---
-        if (!isGameSolved) {
-            const dSuspect = getCardDensity(hypothesis.suspect);
-            const dWeapon = getCardDensity(hypothesis.weapon);
-            const dRoom = getCardDensity(room);
-
-            let multiplier = ownedByEnemy ? 5 : 20; 
-            const totalDensity = (dSuspect + dWeapon + dRoom) * multiplier;
-            
-            if (totalDensity > 0) {
-                const finalDensity = Math.min(totalDensity, 400);
-                score += finalDensity;
-                reasons.push(`📊 Stat:${finalDensity}`);
-            }
+        
+        const hypo = generateHypothesisForRoom(room, allProbs);
+        let reasons = [];
+        
+        if (isReadyToWin && room === rSol) reasons.push("🏆 VITTORIA");
+        else {
+            if (pRoom > 0.8) reasons.push("🔥 Hotspot");
+            else if (isKnownNo) reasons.push("❌ Scartata");
+            else reasons.push("❓ Incerta");
+        }
+        
+        // Info Movimento UI
+        let moveLabel = "";
+        if (isCurrent) moveLabel = "📍 QUI";
+        else if (isSecret) { reasons.push("🚇 Segreto"); moveLabel = "🚇 PASSAGGIO"; }
+        else if (directDist <= 12) {
+             // Se è raggiungibile direttamente, mostriamo % dadi
+             // Ma se il percorso migliore è diverso (es. via passaggio), lo segnaliamo?
+             // Per semplicità UI: se turnsEst < directTurns, è una scorciatoia
+             const directCost = calculateDirectCost(directDist);
+             if (turnsEst < directCost - 0.2) {
+                 reasons.push("⚡️ Scorciatoia");
+                 moveLabel = `Via Passaggio (~${Math.round(turnsEst)}t)`;
+             } else {
+                 moveLabel = `🎲 ${Math.round(reachability*100)}%`;
+             }
+        } else {
+            // Lontano
+             const directCost = calculateDirectCost(directDist);
+             if (turnsEst < directCost - 0.2) {
+                 reasons.push("⚡️ Scorciatoia");
+             }
+             moveLabel = `⏱️ ~${Math.round(turnsEst*10)/10} turni`;
         }
 
-        return { 
-            room, score, turns: trueTurns, dist, reasons, hypothesis, 
-            isCurrent, isSecret, diceReach, isSol: solStatus === 2 
+        return {
+            room, score: utility, pRoom: Math.round(pRoom * 100),
+            dist: directDist, turnsEst, isSecret, isCurrent, 
+            reasons, hypothesis: hypo, reachability, moveLabel
         };
     });
 
     return moves.sort((a, b) => b.score - a.score);
 }
 
-// --- UI HANDLER ---
-
 function updateTacticalSuggestions() {
     const currentLoc = document.getElementById('current-position').value;
     const container = document.getElementById('tactical-suggestions');
-    
-    if (!currentLoc) {
-        container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>';
-        return;
-    }
+    if (!currentLoc) { container.innerHTML = '<div class="suggestions-placeholder">📍 Seleziona posizione...</div>'; return; }
 
-    const rankedMoves = calculateTacticalMoves(currentLoc);
-    const top3 = rankedMoves.filter(s => s.score > -2000).slice(0, 3);
+    const chk = document.getElementById('can-stay-check');
+    const canStay = chk ? chk.checked : true; 
 
-    let html = "";
-    if (top3.length === 0) html = "<div class='suggestions-placeholder'>Nessuna mossa utile.</div>";
+    let rankedMoves = calculateTacticalMoves(currentLoc);
+    if (!canStay) rankedMoves = rankedMoves.filter(m => m.room !== currentLoc);
+
+    const top3 = rankedMoves.slice(0, 3);
+    let html = top3.length === 0 ? "<div class='suggestions-placeholder'>Nessuna mossa utile.</div>" : "";
 
     top3.forEach((s, idx) => {
-        let rankClass = s.isSol ? 'is-top' : (idx === 0 ? 'is-good' : 'is-standard');
-        let turnInfo = s.isCurrent ? "📍 QUI" : (s.isSecret ? "🚇 SEG" : (s.diceReach ? `🎲 ${s.dist}` : `🏃 ~${s.turns}`));
+        let barColor = s.pRoom > 60 ? "var(--success)" : (s.pRoom > 20 ? "var(--accent)" : "var(--text-muted)");
+        let rankClass = idx === 0 ? 'is-top' : 'is-standard';
+        if (s.reasons.includes("🏆 VITTORIA")) { rankClass = "is-top"; barColor = "#FFD700"; }
 
         html += `
-        <div class="suggestion-item ${rankClass}">
+        <div class="suggestion-item ${rankClass}" style="border-left: 4px solid ${barColor}">
             <div class="suggestion-header">
-                <div><div class="suggestion-room-name">${s.room}</div><div class="suggestion-reasons">${s.reasons.join(', ')}</div></div>
-                <div class="suggestion-score-box"><div class="suggestion-score-val">${s.score}</div><div class="suggestion-turn-info">${turnInfo}</div></div>
+                <div>
+                    <div class="suggestion-room-name">${s.room} <span style="font-size:0.8em; color:${barColor}; margin-left:5px;">${s.pRoom}% Sol.</span></div>
+                    <div class="suggestion-reasons">${s.reasons.join(' • ')}</div>
+                </div>
+                <div class="suggestion-score-box"><div class="suggestion-turn-info">${s.moveLabel}</div></div>
             </div>
             <div class="suggestion-insight">
-                <span class="insight-icon">${s.isSol ? '🏆' : '💡'}</span>
+                <span class="insight-icon">💡</span>
                 <div class="insight-content">
-                    <div class="insight-text">${s.hypothesis.text} <span class="insight-type">${s.hypothesis.type || ''}</span></div>
+                    <div class="insight-text">Chiedi: ${s.hypothesis.text}</div>
+                    <span class="insight-type">${s.hypothesis.type}</span>
                 </div>
             </div>
+            <div style="width:100%; height:4px; background:#333; margin-top:6px; border-radius:2px; overflow:hidden;"><div style="width:${s.pRoom}%; height:100%; background:${barColor};"></div></div>
         </div>`;
     });
     container.innerHTML = html;

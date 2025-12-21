@@ -96,41 +96,43 @@ function finalizeSetup() {
         return;
     }
 
-    // Inizializza la Griglia (definita in solver.js)
-    allCards.forEach(c => { 
-        grid[c] = { SOL: 0 }; 
-        players.forEach(p => grid[c][p] = 0); 
-    });
+    // 1. Inizializzazione Variabili Gioco (Solver)
+    // Usa la nuova funzione resetGameVars per pulire cache e griglia
+    if (typeof resetGameVars === 'function') {
+        resetGameVars();
+    } else {
+        // Fallback (non dovrebbe servire se solver.js è aggiornato)
+        allCards.forEach(c => { grid[c] = { SOL: 0 }; players.forEach(p => grid[c][p] = 0); });
+    }
 
-    // Imposta le mie carte come "Viste" (2)
-    checks.forEach(chk => setFact(chk.value, myName, 2)); // setFact è in solver.js
+    // 2. Imposta le mie carte come "Viste" (2)
+    checks.forEach(chk => setFact(chk.value, myName, 2));
 
-    // Calcola i limiti carte per tutti (Logica limiti definita qui per setup)
+    // 3. Calcola i limiti carte per tutti
     const baseCount = Math.floor(CARDS_IN_DECK / players.length);
     const remainder = CARDS_IN_DECK % players.length;
     players.forEach((p, index) => { 
         limits[p] = baseCount + (index < remainder ? 1 : 0); 
     });
 
-    // Configurazione UI Dropdowns
+    // 4. Configurazione UI
     populateSelect('turn-asker', players); 
     populateSelect('turn-responder', players, true);
     populateSelect('turn-suspect', suspects, false, "👤 Sospettato");
     populateSelect('turn-weapon', weapons, false, "🔫 Arma");
     populateSelect('turn-room', rooms, false, "🏰 Stanza");
     
-    // Configurazione Tattica (Tactics.js)
     populateSelect('current-position', rooms);
-    initPathfinding(); // Da tactics.js
+    if(typeof initPathfinding === 'function') initPathfinding();
 
     currentTurnIndex = 0;
     updateTurnUI(); 
 
     switchView('view-hand', 'view-game');
     
-    // Prima esecuzione Solver
-    runSolver(); // Da solver.js
-    updateTacticalSuggestions(); // Da tactics.js
+    // 5. Prima esecuzione Motori
+    runSolver(); 
+    updateTacticalSuggestions(); 
 }
 
 // --- TURN MANAGEMENT ---
@@ -233,7 +235,6 @@ function submitTurn() {
         if(p === responder) break;
         if(responder === 'none' && p === asker) break;
         
-        // setFact è in solver.js
         involved.forEach(c => setFact(c, p, 1)); 
         
         currentIdx = (currentIdx + 1) % players.length;
@@ -249,11 +250,9 @@ function submitTurn() {
                 log(`👁️ Hai visto: <span class="log-highlight">${seen}</span>`);
                 setFact(seen, responder, 2);
             } else {
-                // Caso raro (errore input utente), ma fallback sicuro
                 addConstraint(responder, involved); 
             }
         } else if (responder !== myName) {
-            // addConstraint è in solver.js
             addConstraint(responder, involved);
         }
     } else {
@@ -271,16 +270,15 @@ function submitTurn() {
     updateTurnUI();
     
     // Core Engine Execution
-    runSolver(); // solver.js
-    updateTacticalSuggestions(); // tactics.js
+    runSolver(); 
+    // Avvia la simulazione Monte Carlo per aggiornare i suggerimenti tattici
+    // Nota: Potrebbe causare un micro-freeze impercettibile (2000 iterazioni)
+    updateTacticalSuggestions(); 
 }
 
 // --- LOGGING & RENDERING ---
 
 function log(m) {
-    // Non loggare durante le simulazioni del DeepScan
-    if (typeof isSimulating !== 'undefined' && isSimulating) return;
-
     const textOnly = m.replace(/<[^>]*>/g, '');
     const time = new Date().toLocaleTimeString();
     fullGameLogs.push(`[${time}] ${textOnly}`);
@@ -291,25 +289,82 @@ function log(m) {
 
 function renderGrid() {
     const table = document.getElementById('main-grid');
+    
+    // Recupera probabilità (se disponibili)
+    const probs = (typeof getProbabilities === 'function') ? getProbabilities() : null;
+
     let html = `<thead><tr><th>Carte</th>`;
-    players.forEach(p => html += `<th title="${p}">${p}</th>`);
+    players.forEach(p => html += `<th>${p}</th>`);
     html += `</tr></thead><tbody>`;
 
     const buildRows = (title, list) => {
         html += `<tr><td colspan="${players.length+1}" class="grid-section-title"><b>${title.toUpperCase()}</b></td></tr>`;
         list.forEach(c => {
             const isSol = grid[c].SOL === 2;
+            const isNoSol = grid[c].SOL === 1;
+            
+            // Colora il nome della carta se è probabile soluzione
+            let cardStyle = "";
+            let solPctDisplay = "";
+            
+            if (!isSol && !isNoSol && probs && probs.solution[c] > 0) {
+                // Sfondo sfumato leggero sul nome
+                const solProb = probs.solution[c];
+                const pct = Math.round(solProb * 100);
+                if (pct > 0) {
+                    cardStyle = `style="background: linear-gradient(90deg, rgba(245, 158, 11, ${Math.min(0.4, solProb * 0.5)}) 0%, transparent 100%);"`;
+                    solPctDisplay = `<span class="prob-text-sol">${pct}%</span>`;
+                }
+            }
+
             const rowClass = isSol ? 'c-sol' : '';
-            html += `<tr><td class="${rowClass}">${c}</td>`;
+            html += `<tr><td class="${rowClass}" ${cardStyle}>${c} ${solPctDisplay}</td>`;
+            
             players.forEach(p => {
                 const val = grid[c][p];
-                let display = '&nbsp;';
-                let cls = 'c-unk';
+                let content = '';
+                let cellClass = 'c-unk'; // Classe base per la cella (td)
                 
-                if (val === 2) { display = '✔'; cls = 'c-yes'; }
-                else if (val === 1) { display = '✘'; cls = 'c-no'; }
+                if (val === 2) { 
+                    content = '✔'; 
+                    cellClass = 'c-yes'; 
+                }
+                else if (val === 1) { 
+                    content = '✘'; 
+                    cellClass = 'c-no'; 
+                }
+                else {
+                    // Logica Probabilità Unificata
+                    if (probs && probs.distribution) {
+                        const rawProb = probs.distribution[c][p];
+                        
+                        if (rawProb !== undefined && rawProb !== null) {
+                            let pct = Math.round(rawProb * 100);
+                            let textToShow = `${pct}%`;
+
+                            // Gestione <1%
+                            if (pct === 0 && rawProb > 0) textToShow = "<1%";
+
+                            // Calcolo opacità sfondo: min 0.1 (per gli 0%), max 0.8 (per il 100%)
+                            // Usiamo l'indaco (var(--primary)) come base
+                            // Se è 0% esatto (matematicamente impossibile che ce l'abbia, ma non ancora segnato come NO), lo teniamo molto spento.
+                            let alpha = 0.1; 
+                            if (rawProb > 0) {
+                                alpha = 0.15 + (rawProb * 0.65); 
+                            }
+                            
+                            // Se la probabilità è 0 assoluta (dalla simulazione) o molto bassa, il testo è grigio scuro, altrimenti bianco
+                            const textColor = (rawProb < 0.3) ? '#9ca3af' : '#fff'; 
+                            // O se preferisci sempre bianco per uniformità, usa sempre #fff e alza l'alpha minimo.
+                            
+                            // Costruiamo il badge usando lo stile CSS unificato
+                            // Nota: lo style inline definisce SOLO il colore dinamico
+                            content = `<span class="prob-badge" style="background-color: rgba(99, 102, 241, ${alpha}); color: ${textColor}">${textToShow}</span>`;
+                        }
+                    }
+                }
                 
-                html += `<td class="${cls}">${display}</td>`;
+                html += `<td class="${cellClass}">${content}</td>`;
             });
             html += `</tr>`;
         });

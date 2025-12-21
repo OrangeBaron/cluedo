@@ -28,8 +28,9 @@ Mentre i tuoi amici faticano a ricordare chi ha mostrato cosa tre turni fa, ques
 
 * **🕵️ Gestione Giocatori:** Supporta da 3 a 6 giocatori con calcolo automatico della distribuzione delle carte.
 * **🧠 Motore Deduttivo:** Algoritmo iterativo che incrocia le informazioni pubbliche e private per dedurre le carte in mano agli avversari.
-* **🧭 Navigatore Tattico:** Un assistente strategico che analizza la mappa e ti consiglia la stanza migliore da raggiungere. Suggerisce l'ipotesi ottimale da formulare (es. "Usa il Pugnale come scudo per trovare Mustard") bilanciando la necessità di informazioni e il rischio di svelare la tua mano.
-* **🔮 Deep Scan:** Quando la logica standard si ferma, il sistema avvia una simulazione in background. Testa scenari ipotetici ("Se Tizio avesse questa carta...") per trovare contraddizioni matematiche e forzare deduzioni impossibili da vedere a occhio nudo.
+* **📊 Analisi Probabilistica:** Oltre alle certezze (Sì/No), la griglia mostra in tempo reale le percentuali di probabilità per ogni carta, calcolate tramite simulazioni in background.
+* **🧭 Navigatore Tattico:** Un assistente strategico che valuta ogni possibile mossa calcolandone l'**Entropia di Shannon**. Ti consiglia la stanza e l'ipotesi che massimizzano matematicamente il guadagno informativo, bilanciando la distanza fisica (e la probabilità dei dadi) con l'incertezza da risolvere.
+* **🔮 Deep Scan:** Quando la logica standard si ferma, il sistema avvia una simulazione "brute-force" intelligente. Testa scenari ipotetici ("Se Tizio avesse questa carta...") per trovare contraddizioni a catena e forzare deduzioni impossibili da vedere a occhio nudo.
 * **🚫 Gestione Vincoli:** Se un giocatore mostra una carta a qualcun altro, il sistema ricorda il gruppo di possibilità e lo risolve automaticamente appena ottiene nuove informazioni.
 * **↩️ Sistema di Undo:** Hai sbagliato a cliccare? Puoi annullare l'ultima mossa istantaneamente per correggere l'errore senza rompere la logica della partita.
 * **🧪 Suite di Test & Simulazioni:** Include un motore di testing avanzato (accessibile da console) per eseguire unit test sulla logica, simulazioni di partite complete (Bot vs Bot) e analisi Monte Carlo per verificare la robustezza dell'algoritmo.
@@ -59,8 +60,8 @@ Il codice è scritto in **Vanilla JS** (nessun framework pesante). La logica di 
 * **Esclusione Diretta:** Se P1 ha la carta X, nessun altro ce l'ha.
 * **Insiemi di Vincoli:** Quando P1 mostra una carta a P2 per la domanda {A, B, C}, il sistema sa che P1 possiede almeno una tra A, B o C.
 * **Principio dei Cassetti (Pigeonhole):** Se sappiamo che P1 ha 3 carte in totale e ne abbiamo già identificate 3, tutte le altre carte del mazzo sono segnate come "NON possedute" da P1.
-* **Reductio ad Absurdum (Deep Scan):** Il solver esegue tentativi "brute-force" intelligenti sulle celle incerte per trovare contraddizioni a catena.
-* **Scoring Euristico (Tactics):** Il Navigatore Tattico utilizza una matrice di adiacenza delle stanze (Floyd-Warshall) per calcolare i percorsi ottimali e massimizzare il guadagno informativo di ogni turno.
+* **Reductio ad Absurdum (Deep Scan):** Il solver esegue tentativi sulle celle incerte per trovare contraddizioni logiche.
+* **Teoria dell'Informazione (Tactics):** Il Navigatore Tattico non usa semplici euristiche, ma calcola l'Entropia di Shannon per pesare il valore informativo di ogni carta ignota. Combina questo dato con una matrice di adiacenza (Floyd-Warshall) per suggerire il percorso che offre il miglior rapporto tra rischio (spostamento) e ricompensa (informazione).
 
 > 🛠 **Developer Mode:** Nella cartella `/tests` sono presenti script (`montecarlo.js`, `match.js`) eseguibili nella console del browser per simulare migliaia di partite e validare le modifiche all'algoritmo.
 

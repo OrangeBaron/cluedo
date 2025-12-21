@@ -89,9 +89,19 @@
         <div class="card tactical-card">
             <div class="tactical-header">
                 <h3 class="tactical-title">🧭 Navigatore Tattico</h3>
-                <select id="current-position" class="tactical-select" onchange="updateTacticalSuggestions()">
-                    <option value="" selected>-- Dove sei ora? --</option>
-                </select>
+                
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 0.8rem; color: var(--accent); display: flex; align-items: center; cursor: pointer;" title="Spunta se sei stato trascinato qui da un altro giocatore">
+                        
+                        <input type="checkbox" id="can-stay-check" onchange="updateTacticalSuggestions()" style="width: auto; margin-right: 6px; appearance: auto; -webkit-appearance: auto; accent-color: var(--accent);" checked>
+                        
+                        Puoi restare?
+                    </label>
+                    <select id="current-position" class="tactical-select" onchange="updateTacticalSuggestions()">
+                        <option value="" selected>-- Dove sei ora? --</option>
+                    </select>
+                </div>
+                
             </div>
             <div id="tactical-suggestions" class="suggestions-list">
                 <div class="suggestions-placeholder">📍 Seleziona posizione...</div>
