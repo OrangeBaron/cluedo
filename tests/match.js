@@ -200,7 +200,7 @@ await (async function runRealisticSimulation() {
     while (!gameOver && turnCount < MAX_TURNS) {
         turnCount++;
         const currentPlayer = simPlayers[currentPlayerIdx];
-        const canStay = !currentPlayer.wasDragged;
+        const canStay = currentPlayer.wasDragged;
         currentPlayer.wasDragged = false;
         
         console.log(`\n--- TURNO ${turnCount}: ${currentPlayer.name} (in ${currentPlayer.currentLocation}${canStay ? ", può restare" : ""}) ---`);
